@@ -39,8 +39,8 @@ CLOBBER.include(Rakefile::Gatk::DEDUP_BAM,
                 Rakefile::Gatk::RECAL,
                 Rakefile::Gatk::RECALBAM,
                 Rakefile::Gatk::RECALBAI,
-                "#{WORKDIR}/all_indels*",
-                "#{WORKDIR}/*.log", )
+                "#{Rakefile::Gatk::WORKDIR}/all_indels*",
+                "#{Rakefile::Gatk::WORKDIR}/*.log", )
 
 #
 # GATK's "better" workflow rules

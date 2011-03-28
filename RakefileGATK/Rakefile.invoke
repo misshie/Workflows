@@ -20,6 +20,8 @@ module RakefileInvoke
     GATK_JAR      = "/opt/GenomeAnalysisTK/GenomeAnalysisTK.jar"
     PYTHON        = "/usr/bin/python"
     MAKEINDELMASK = "/opt/GenomeAnalysisTK/makeIndelMask.py"
+    INTERVAL_OPTION = "-L #{File.dirname(__FILE__)}/../Sample/chrom21.interval_list"
+    # or INTERVAL_OPTION = ""
 
     class << self
       def bwa_aln(t, opts={})
@@ -172,6 +174,7 @@ module RakefileInvoke
             "-o #{t.name}",
             "-stand_call_conf 50.0",
             "-stand_emit_conf 10.0",
+            RakefileInvoke::Gatk::INTERVAL_OPTION,
             "> #{t.name}.log 2>&1",
            ].join(" ")
       end
@@ -189,6 +192,7 @@ module RakefileInvoke
             "-verbose #{t.name.sub(/\.vcf$/, ".txt")}",
             "-o #{t.name}",
             "--refseq #{REFGENE}",
+            RakefileInvoke::Gatk::INTERVAL_OPTION,
             "> #{t.name}.log 2>&1",
            ].join(" ")
       end
