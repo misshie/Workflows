@@ -46,7 +46,7 @@ rule ".dindel.libraries.txt" =>
   [ suffix_proc(".dindel.libraries.txt" => ".bam") ]
 
 Rakefile::Dindel::BAM.each do |bam|
-task :stage1 => suffix(bam, ".bam" => ".dindel.variants.txt")
+file :stage1 => suffix(bam, ".bam" => ".dindel.variants.txt")
 end
 
 # DINDEL stage 2
@@ -60,7 +60,7 @@ rule ".dindel.realign_windows" =>
 end
 
 Rakefile::Dindel::BAM.each do |bam|
-  task :stage2 => suffix(bam, ".bam" => ".dindel.realign_windows")
+  file :stage2 => suffix(bam, ".bam" => ".dindel.realign_windows")
 end
 # DINDEL stage 3
 #
@@ -78,7 +78,7 @@ task :stage3 => :stage2 do
         ] do |t|
         RakefileInvoke::Dindel.dindel_stage3 t
       end
-      task :stage3_invoke => target
+      file :stage3_invoke => target
     end
   end
   (task :stage3_invoke).invoke

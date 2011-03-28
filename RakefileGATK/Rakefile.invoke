@@ -11,7 +11,8 @@ module RakefileInvoke
     DBSNP     = "/home/genetics/NGS/resources/dbsnp_131_hg19.hg1x-format.rod"
     DBSNP132  = "/home/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
     REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
-    
+
+    GATK_PARALLEL = 16
     BWA           = "/usr/local/bin/bwa"
     Java          = "/usr/java/default/bin/java"
     JavaMemory    = "9g"
@@ -83,6 +84,7 @@ module RakefileInvoke
             "-o #{t.name}",
             "-I #{t.source}",
             "-D #{DBSNP}",
+            RakefileInvoke::Gatk::INTERVAL_OPTION,
             "> #{t.name}.log 2>&1",
            ].join(" ")
       end
@@ -132,6 +134,7 @@ module RakefileInvoke
             "-cov QualityScoreCovariate",
             "-cov CycleCovariate",
             "-cov DinucCovariate",
+            "-nt #{GATK_PARALLEL}",
             "> #{t.name}.log 2>&1",
            ].join(" ")
       end

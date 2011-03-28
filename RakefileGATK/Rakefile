@@ -31,16 +31,17 @@ module Rakefile
   end
 end
 
-CLEAN.include()
-CLOBBER.include(Rakefile::Gatk::DEDUP_BAM,
-                Rakefile::Gatk::INTERVALS, 
-                Rakefile::Gatk::REALIG,
-                Rakefile::Gatk::REALIG_FIX,
-                Rakefile::Gatk::RECAL,
-                Rakefile::Gatk::RECALBAM,
-                Rakefile::Gatk::RECALBAI,
+Rakefile::Gatk::BAM.each do |bam|
+  CLEAN.include(suffix(bam, ".bam" => ".dedup*"),
                 "#{Rakefile::Gatk::WORKDIR}/all_indels*",
-                "#{Rakefile::Gatk::WORKDIR}/*.log", )
+                "#{Rakefile::Gatk::WORKDIR}/all_snvs*",)
+  CLEAN.exclude("#{Rakefile::Gatk::WORKDIR}/all_snvs.filtered.vcf*",
+                "#{Rakefile::Gatk::WORKDIR}/all_indels.vcf*",
+                "#{Rakefile::Gatk::WORKDIR}/all_mask.bed*",)
+  CLOBBER.include("#{Rakefile::Gatk::WORKDIR}/all_snvs.filtered.vcf*",
+                  "#{Rakefile::Gatk::WORKDIR}/all_indels.vcf*",
+                  "#{Rakefile::Gatk::WORKDIR}/all_mask.bed*",)
+end
 
 #
 # GATK's "better" workflow rules

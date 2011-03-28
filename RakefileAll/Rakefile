@@ -1,0 +1,12 @@
+load "Rakefile.helper"
+Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
+
+load "#{File.dirname(__FILE__)}/../RakefileGATK/Rakefile"
+load "#{File.dirname(__FILE__)}/../RakefileDindel/Rakefile"
+
+
+#rename_task :dindel_default, :default 
+
+#task :default => [:gatk_default,:dindel_default]
+#rename_task :gatk_default, :default 
+#task :default => [
