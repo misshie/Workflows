@@ -5,221 +5,224 @@
 # ( missy at be.to / hmishima at nagasaki-u.ac.jp )
 # see README.rdoc and LICENCE for detail 
 
-REFERENCE = "/home/genetics/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
-DBSNP     = "/home/genetics/NGS/resources/dbsnp_131_hg19.hg1x-format.rod"
-DBSNP132  = "/home/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
-REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
-
-BWA           = "/usr/local/bin/bwa"
-Java          = "/usr/java/default/bin/java"
-JavaMemory    = "9g"
-JavaTempFile  = "/tmp"
-PICARD_DIR    = "/opt/picard"
-GATK_JAR      = "/opt/GenomeAnalysisTK/GenomeAnalysisTK.jar"
-PYTHON        = "/usr/bin/python"
-MAKEINDELMASK = "/opt/GenomeAnalysisTK/makeIndelMask.py"
-
-class RakefileInvoke
-  class << self
-    def sh_bwa_aln(t, opts={})
-      sh [BWA,
-          "aln",
-          REFERENCE,
-          t.source,
-          "> #{t.name}",
-          "2> #{t.name}.log",
-         ].join(" ")
-    end
+module RakefileInvoke
+  class Gatk
+    REFERENCE = "/home/genetics/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
+    DBSNP     = "/home/genetics/NGS/resources/dbsnp_131_hg19.hg1x-format.rod"
+    DBSNP132  = "/home/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
+    REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
     
-    def sh_bwa_sampe(t, opts={})
-      sh [BWA,
-          "sampe",
-          "-r \"#{opts[:rg]}\"",
-          REFERENCE,
-          t.sources[0..3],
-          "> #{t.name}",
-          "2> #{t.name}.log",
-          ].join(" ")
-    end
+    BWA           = "/usr/local/bin/bwa"
+    Java          = "/usr/java/default/bin/java"
+    JavaMemory    = "9g"
+    JavaTempFile  = "/tmp"
+    PICARD_DIR    = "/opt/picard"
+    GATK_JAR      = "/opt/GenomeAnalysisTK/GenomeAnalysisTK.jar"
+    PYTHON        = "/usr/bin/python"
+    MAKEINDELMASK = "/opt/GenomeAnalysisTK/makeIndelMask.py"
 
-    def sh_picard_sortsam(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{PICARD_DIR}/SortSam.jar",
-          "VALIDATION_STRINGENCY=SILENT",
-          "SORT_ORDER=coordinate",
-          "CREATE_INDEX=true",
-          "INPUT=#{t.source}",
-          "OUTPUT=#{t.name}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+    class << self
+      def bwa_aln(t, opts={})
+        sh [BWA,
+            "aln",
+            REFERENCE,
+            t.source,
+            "> #{t.name}",
+            "2> #{t.name}.log",
+           ].join(" ")
+      end
+    
+      def bwa_sampe(t, opts={})
+        sh [BWA,
+            "sampe",
+            "-r \"#{opts[:rg]}\"",
+            REFERENCE,
+            t.sources[0..3],
+            "> #{t.name}",
+            "2> #{t.name}.log",
+           ].join(" ")
+      end
 
-    def sh_picard_markduplicate(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{PICARD_DIR}/MarkDuplicates.jar",
-          "VALIDATION_STRINGENCY=SILENT",
-          "CREATE_INDEX=true",
-          "INPUT=#{t.source}",
-          "OUTPUT=#{t.name}",
-          "METRICS_FILE=#{t.name.sub(/bam$/,"metrics")}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def picard_sortsam(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/SortSam.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "SORT_ORDER=coordinate",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_realigner_target_creater(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T RealignerTargetCreator",
-          "-R #{REFERENCE}",
-          "-o #{t.name}",
-          "-I #{t.source}",
-          "-D #{DBSNP}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def picard_markduplicate(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/MarkDuplicates.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "METRICS_FILE=#{t.name.sub(/bam$/,"metrics")}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_indel_realigner(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T IndelRealigner",
-          "-R #{REFERENCE}",
-          "-o #{t.name}",
-          "-I #{t.sources[0]}",
-          "-D #{DBSNP}",
-          "-targetIntervals #{t.sources[1]}",
-          "-compress 0",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def gatk_realigner_target_creater(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T RealignerTargetCreator",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-I #{t.source}",
+            "-D #{DBSNP}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_picard_fixmateinformation(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{PICARD_DIR}/FixMateInformation.jar",
-          "VALIDATION_STRINGENCY=SILENT",
-          "SORT_ORDER=coordinate",
-          "CREATE_INDEX=true",
-          "INPUT=#{t.source}",
-          "OUTPUT=#{t.name}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def gatk_indel_realigner(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T IndelRealigner",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-I #{t.sources[0]}",
+            "-D #{DBSNP}",
+            "-targetIntervals #{t.sources[1]}",
+            "-compress 0",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_count_covariates(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T CountCovariates",
-          "-l INFO",
-          "-R #{REFERENCE}",
-          "-D #{DBSNP}",
-          "-I #{t.source}",
-          "-recalFile #{t.name}",
-          "-cov ReadGroupCovariate",
-          "-cov QualityScoreCovariate",
-          "-cov CycleCovariate",
-          "-cov DinucCovariate",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def picard_fixmateinformation(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/FixMateInformation.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "SORT_ORDER=coordinate",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_table_recalibration(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T TableRecalibration",
-          "-R #{REFERENCE}",
-          "-I #{t.sources[0]}",
-          "-recalFile #{t.sources[1]}",
-          "-o #{t.name}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def gatk_count_covariates(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T CountCovariates",
+            "-l INFO",
+            "-R #{REFERENCE}",
+            "-D #{DBSNP}",
+            "-I #{t.source}",
+            "-recalFile #{t.name}",
+            "-cov ReadGroupCovariate",
+            "-cov QualityScoreCovariate",
+            "-cov CycleCovariate",
+            "-cov DinucCovariate",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_picard_build_bam_index(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{PICARD_DIR}/BuildBamIndex.jar",
-          "VALIDATION_STRINGENCY=SILENT",
-          "INPUT=#{t.source}",
-          "OUTPUT=#{t.name}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def gatk_table_recalibration(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T TableRecalibration",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-recalFile #{t.sources[1]}",
+            "-o #{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_unifiedgenotyper(t, opts={})
-      sh [Java,
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T UnifiedGenotyper",
-          "-R #{REFERENCE}",
-          "-B:dbsnp,VCF #{DBSNP132}",
-          t.prerequisites.map {|e| "-I #{e.sub(/\.bai$/,".bam")}"},
-          "-o #{t.name}",
-          "-stand_call_conf 50.0",
-          "-stand_emit_conf 10.0",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def picard_build_bam_index(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/BuildBamIndex.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_indelgenotyper_v2(t, opts={})
-      sh ["#{Java}",
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T IndelGenotyperV2",
-          "-l INFO",
-          "-R #{REFERENCE}",
-          t.prerequisites.map{|e|"-I #{e.sub(/\.bai$/,".bam")}"}.join(" "),
-          "-bed #{t.name.sub(/\.vcf$/, ".bed")}",
-          "-verbose #{t.name.sub(/\.vcf$/, ".txt")}",
-          "-o #{t.name}",
-          "--refseq #{REFGENE}",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
+      def gatk_unifiedgenotyper(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T UnifiedGenotyper",
+            "-R #{REFERENCE}",
+            "-B:dbsnp,VCF #{DBSNP132}",
+            t.prerequisites.map {|e| "-I #{e.sub(/\.bai$/,".bam")}"},
+            "-o #{t.name}",
+            "-stand_call_conf 50.0",
+            "-stand_emit_conf 10.0",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_make_indelmask(t, opts={})
-      sh ["#{PYTHON} #{MAKEINDELMASK}",
-          t.prerequisites,
-          "10",
-          t.name,
-         ].join(" ")
-    end
+      def gatk_indelgenotyper_v2(t, opts={})
+        sh ["#{Java}",
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T IndelGenotyperV2",
+            "-l INFO",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e.sub(/\.bai$/,".bam")}"}.join(" "),
+            "-bed #{t.name.sub(/\.vcf$/, ".bed")}",
+            "-verbose #{t.name.sub(/\.vcf$/, ".txt")}",
+            "-o #{t.name}",
+            "--refseq #{REFGENE}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
 
-    def sh_gatk_variant_filtration(t, opts={})
-      sh ["#{Java}",
-          "-Xmx#{JavaMemory}",
-          "-Djava.io.tmpdir=#{JavaTempFile}",
-          "-jar #{GATK_JAR}",
-          "-T VariantFiltration",
-          "-R #{REFERENCE}",
-          "-B:variant,VCF #{t.prerequisites[0]}",
-          "-o #{t.name}",
-          "--clusterWindowSize 10",
-          "--filterExpression \"MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)\"",
-          "--filterName \"HARD_TO_VALIDATE\"",
-          "-B:mask,Bed #{t.prerequisites[1]}",
-          "--maskName InDel",
-          "--filterExpression",
-          "\"QUAL < 30.0 || AB > 0.75 && DP > 40 ||",
-          "QD < 5.0 || HRun > 5 || SB > -0.10\"",
-          "--filterName GATKStandard",
-          "> #{t.name}.log 2>&1",
-         ].join(" ")
-    end
-  end
-end
+      def gatk_make_indelmask(t, opts={})
+        sh ["#{PYTHON} #{MAKEINDELMASK}",
+            t.prerequisites,
+            "10",
+            t.name,
+           ].join(" ")
+      end
+
+      def gatk_variant_filtration(t, opts={})
+        sh ["#{Java}",
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-B:variant,VCF #{t.prerequisites[0]}",
+            "-o #{t.name}",
+            "--clusterWindowSize 10",
+            "--filterExpression \"MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)\"",
+            "--filterName \"HARD_TO_VALIDATE\"",
+            "-B:mask,Bed #{t.prerequisites[1]}",
+            "--maskName InDel",
+            "--filterExpression",
+            "\"QUAL < 30.0 || AB > 0.75 && DP > 40 ||",
+            "QD < 5.0 || HRun > 5 || SB > -0.10\"",
+            "--filterName GATKStandard",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+    end # class << self 
+  end # class Gatk
+end # module RakefileInvoke 
