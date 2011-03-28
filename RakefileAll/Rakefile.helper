@@ -1,9 +1,10 @@
 #
 # Rakefile.helper for the GATK 'better' workflow
 # 
-# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# copyright (c) 2010-2011 Hiroyuki MISHIMA (except commented methods)
 # ( missy at be.to / hmishima at nagasaki-u.ac.jp )
 # see README.rdoc and LICENCE for detail 
+
 
 #
 # helper methods
@@ -22,4 +23,19 @@ end
 def suffix_proc(dependency)
   proc {|fn| 
     suffix(fn, dependency)}
+end
+
+# alias_task: A helper to alias a task in rake
+# Publicly released by raggi (Nov. 13, 2009)
+# git://gist.github.com/232966.git
+# https://gist.github.com/232966
+
+def alias_task(name, old_name)
+  t = Rake::Task[old_name].dup
+  desc t.full_comment if t.full_comment
+  task name, *t.arg_names do |_, args|
+    # values_at is broken on Rake::TaskArguments
+    args = t.arg_names.map { |a| args[a] }
+    t.invoke(args)
+  end
 end

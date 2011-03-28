@@ -5,16 +5,16 @@
 # ( missy at be.to / hmishima at nagasaki-u.ac.jp )
 # see README.rdoc and LICENCE for detail 
 
-load 'Rakefile.helper'
-load 'Rakefile.invoke'
-require 'rake/claen'
+load "#{File.dirname(__FILE__)}/Rakefile.helper"
+load "#{File.dirname(__FILE__)}/Rakefile.invoke"
+require 'rake/clean'
 
 require 'pwrake/graph' if defined? Pwrake
 Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
 
 module Rakefile
   class Gatk
-    WORKDIR    = "../Sample"
+    WORKDIR    = "#{File.dirname(__FILE__)}/../Sample"
     BAM        = FileList["#{WORKDIR}/DRR000606.21.bam"]
     DEDUP_BAM  = suffix(BAM, ".bam" => ".dedup.bam")
     INTERVALS  = suffix(BAM, ".bam" => ".dedup.bam.intervals")
@@ -24,22 +24,23 @@ module Rakefile
     RECALBAM   = suffix(BAM, ".bam" => ".dedup.realig.fix.recal.bam")
     RECALBAI   = suffix(BAM, ".bam" => ".dedup.realig.fix.recal.bai")
     ALL_SNVS_RAW_VCF       = "#{WORKDIR}/all_snvs.raw.vcf"
-    ALL_SNVS_FILETERED_VCF = "#{WORKDIR}/all_snvs.filtered.vcf"
+    ALL_SNVS_FILTERED_VCF  = "#{WORKDIR}/all_snvs.filtered.vcf"
     ALL_INDELS_BED         = "#{WORKDIR}/all_indels.bed"
     ALL_INDELS_VCF         = "#{WORKDIR}/all_indels.vcf"
     ALL_INDELS_MASK_BED    = "#{WORKDIR}/all_indels.mask.bed"
-
   end
 end
 
 CLEAN.include()
-CLOBBER.incude( Rakefile::Gatk::DEDUP_BAM,
-                Rakefile::Gatk::INTERBALS, 
+CLOBBER.include(Rakefile::Gatk::DEDUP_BAM,
+                Rakefile::Gatk::INTERVALS, 
                 Rakefile::Gatk::REALIG,
                 Rakefile::Gatk::REALIG_FIX,
                 Rakefile::Gatk::RECAL,
                 Rakefile::Gatk::RECALBAM,
-                Rakefile::Gatk::RECAL,BAI, )
+                Rakefile::Gatk::RECALBAI,
+                "#{WORKDIR}/all_indels*",
+                "#{WORKDIR}/*.log", )
 
 #
 # GATK's "better" workflow rules
@@ -74,24 +75,24 @@ end
 
 desc "GATK: CountCovariates"
 rule '.dedup.realig.fix.bam.recal.csv' =>
-    [ suffix_proc(".dedup.realig.fix.bam.recal.csv" =>
-                  ".dedup.realig.fix.bam") ] do |t|
+  [ suffix_proc(".dedup.realig.fix.bam.recal.csv" =>
+                ".dedup.realig.fix.bam") ] do |t|
   RakefileInvoke::Gatk.gatk_count_covariates t
 end
 
 desc "GATK: TableRecalibration"
 rule '.dedup.realig.fix.recal.bam' =>
-    [ suffix_proc(".dedup.realig.fix.recal.bam" =>
-                  ".dedup.realig.fix.bam"),
-      suffix_proc(".dedup.realig.fix.recal.bam" =>
-                  ".dedup.realig.fix.bam.recal.csv") ] do |t|
+  [ suffix_proc(".dedup.realig.fix.recal.bam" =>
+                ".dedup.realig.fix.bam"),
+    suffix_proc(".dedup.realig.fix.recal.bam" =>
+                ".dedup.realig.fix.bam.recal.csv") ] do |t|
   RakefileInvoke::Gatk.gatk_table_recalibration t
 end
 
 desc "Picard index: Generate index files for recalibrated BAMs"
 rule '.dedup.realig.fix.recal.bai' =>
-  [ suffix_proc(  ".dedup.realig.fix.recal.bai" =>
-                  ".dedup.realig.fix.recal.bam") ] do |t|
+  [ suffix_proc(".dedup.realig.fix.recal.bai" =>
+                ".dedup.realig.fix.recal.bam") ] do |t|
   RakefileInvoke::Gatk.picard_build_bam_index t
 end
 
@@ -101,33 +102,26 @@ end
 #
 
 desc "GATK: UnifiedGenotyper for SNVs"
-file "all_snvs.raw.vcf" => Rakefile::Gatk::RECALBAI do |t|
+file Rakefile::Gatk::ALL_SNVS_RAW_VCF => Rakefile::Gatk::RECALBAI do |t|
    RakefileInvoke::Gatk.gatk_unifiedgenotyper t
 end
 
 desc "GATK: IndelGenotyperV2"
-file "all_indels.vcf" => Rakefile::Gatk::RECALBAI do |t|
+file Rakefile::Gatk::ALL_INDELS_VCF => Rakefile::Gatk::RECALBAI do |t|
    RakefileInvoke::Gatk.gatk_indelgenotyper_v2 t
 end
-file ALL_INDELS_BED => ALL_INDELS_VCF
+file Rakefile::Gatk::ALL_INDELS_BED => Rakefile::Gatk::ALL_INDELS_VCF
 
 desc "GATK: makeIndelMask"
-file ALL_INDELS_MASK_BED => ALL_INDELS_BED do |t|
+file Rakefile::Gatk::ALL_INDELS_MASK_BED => Rakefile::Gatk::ALL_INDELS_BED do |t|
     RakefileInvoke::Gatk.gatk_make_indelmask t
 end
 
 desc "GATK: VariantFiltration"
- file "all_snvs.filtered.vcf" =>
-    ["all_snvs.raw.vcf", "all_indels.mask.bed"] do |t|
+file Rakefile::Gatk::ALL_SNVS_FILTERED_VCF =>
+    [Rakefile::Gatk::ALL_SNVS_RAW_VCF, Rakefile::Gatk::ALL_INDELS_MASK_BED] do |t|
    RakefileInvoke::Gatk.gatk_variant_filtration t
 end
-
-    # ALL_INDELS_BED      = "#{WORKDIR}/all_indels.bed"
-    # ALL_SNVS_RAW_VCF    = "#{WORKDIR}/all_snvs.raw.vcf"
-    # ALL_INDELS_VCF      = "#{WORKDIR}/all_indels.vcf"
-    # ALL_INDELS_MASK_BED = "#{WORKDIR}/all_indels.mask.bed"
-
-
 
 #
 # default task 
@@ -140,10 +134,10 @@ end
 #task :default => Rakefile::Gatk::RECAL
 #task :default => Rakefile::Gatk::RECALBAM
 #task :default => Rakefile::Gatk::RECALBAI
-#task :default => "all_snvs.raw.vcf"
-#task :default => "all_indels.vcf"
-#task :default => "all_indels.mask.bed"
-task :default => "all_snvs.filtered.vcf"
+#task :default => Rakefile::Gatk::ALL_SNV_RAW_VCF
+#task :default => Rakefile::Gatk::ALL_INDELS_VCF
+#task :default => Rakefile::Gatk::ALL_INDELS_MASK_BED
+task :default => Rakefile::Gatk::ALL_SNVS_FILTERED_VCF
 
 #
 # the graph task to output DAG graph
