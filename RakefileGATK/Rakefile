@@ -1,0 +1,130 @@
+#
+# Rakefile for the GATK 'better' workflow
+# 
+# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+load 'Rakefile.helper'
+load 'Rakefile.invoke'
+
+require 'pwrake/graph' if defined? Pwrake
+Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
+
+BAM        = FileList["DRR000606.21.bam"]
+DEDUP_BAM  = suffix(BAM, ".bam" => ".dedup.bam")
+INTERVALS  = suffix(BAM, ".bam" => ".dedup.bam.intervals")
+REALIG     = suffix(BAM, ".bam" => ".dedup.realig.bam")
+REALIG_FIX = suffix(BAM, ".bam" => ".dedup.realig.fix.bam")
+RECAL      = suffix(BAM, ".bam" => ".dedup.realig.fix.bam.recal.csv")
+RECALBAM   = suffix(BAM, ".bam" => ".dedup.realig.fix.recal.bam")
+RECALBAI   = suffix(BAM, ".bam" => ".dedup.realig.fix.recal.bai")
+
+#
+# GATK's "better" workflow rules
+# (local realign and quality score recalibration)
+#
+
+desc "Picard MarkDuplicate: DeDup reads"
+rule '.dedup.bam' =>
+  [ suffix_proc(".dedup.bam" => ".bam") ] do |t|
+  RakefileInvoke::sh_picard_markduplicate t
+end
+
+desc "GATK RealignerTargetCreater"
+rule '.dedup.bam.intervals' =>
+  [ suffix_proc(".bam.intervals" => ".bam") ] do |t|
+  RakefileInvoke::sh_gatk_realigner_target_creater t
+end
+
+desc "GATK IndelRealigner"
+rule '.dedup.realig.bam' =>
+    [ suffix_proc(".dedup.realig.bam" => ".dedup.bam"),
+      suffix_proc(".dedup.realig.bam" => ".dedup.bam.intervals")
+    ] do |t|
+  RakefileInvoke::sh_gatk_indel_realigner t
+end
+
+desc "Picard FixMateInformation"
+rule '.dedup.realig.fix.bam' =>
+  [ suffix_proc(".dedup.realig.fix.bam" => ".dedup.realig.bam") ] do |t|
+  RakefileInvoke::sh_picard_fixmateinformation t
+end
+
+desc "GATK: CountCovariates"
+rule '.dedup.realig.fix.bam.recal.csv' =>
+    [ suffix_proc(".dedup.realig.fix.bam.recal.csv" =>
+                  ".dedup.realig.fix.bam") ] do |t|
+  RakefileInvoke::sh_gatk_count_covariates t
+end
+
+desc "GATK: TableRecalibration"
+rule '.dedup.realig.fix.recal.bam' =>
+    [ suffix_proc(".dedup.realig.fix.recal.bam" =>
+                  ".dedup.realig.fix.bam"),
+      suffix_proc(".dedup.realig.fix.recal.bam" =>
+                  ".dedup.realig.fix.bam.recal.csv") ] do |t|
+  RakefileInvoke::sh_gatk_table_recalibration t
+end
+
+desc "Picard index: Generate index files for recalibrated BAMs"
+rule '.dedup.realig.fix.recal.bai' =>
+  [ suffix_proc(  ".dedup.realig.fix.recal.bai" =>
+                  ".dedup.realig.fix.recal.bam") ] do |t|
+  RakefileInvoke::sh_picard_build_bam_index t
+end
+
+#
+# GATK's "better" workflow rules
+# (SNV and INDEL genotyping)
+#
+
+desc "GATK: UnifiedGenotyper for SNVs"
+file "all_snvs.raw.vcf" => RECALBAI do |t|
+   RakefileInvoke::sh_gatk_unifiedgenotyper t
+end
+
+desc "GATK: IndelGenotyperV2"
+file "all_indels.vcf" => RECALBAI do |t|
+   RakefileInvoke::sh_gatk_indelgenotyper_v2 t
+end
+file "all_indels.bed" => "all_indels.vcf"
+
+desc "GATK: makeIndelMask"
+file "all_indels.mask.bed" => "all_indels.bed" do |t|
+    RakefileInvoke::sh_gatk_make_indelmask t
+end
+
+desc "GATK: VariantFiltration"
+ file "all_snvs.filtered.vcf" =>
+    ["all_snvs.raw.vcf", "all_indels.mask.bed"] do |t|
+   RakefileInvoke::sh_gatk_variant_filtration t
+end
+
+#
+# default task 
+#
+
+#task :default => DEDUP_BAM # 20min
+#task :default => INTERVALS # 1hr45min
+#task :default => REALIG # 1hr45
+#task :default => REALIG_FIX # 15min
+#task :default => RECAL # 1hr30min
+#task :default => RECALBAM # 1hr
+#task :default => RECALBAI # 2min
+#task :default => "all_snvs.raw.vcf" # 3hrs
+#task :default => "all_indels.vcf" # 22min
+#task :default => "all_indels.mask.bed" # 1 sec
+task :default => "all_snvs.filtered.vcf" # 1 min
+
+#
+# the graph task to output DAG graph
+# DOT files can be converted to image files
+# using Graphviz http://graphviz.org
+#
+task :graph => :default do
+  #require "pwrake/graph"
+  g = Pwrake::Graphviz.new
+  g.trace
+  g.write("graphviz.dot")
+end

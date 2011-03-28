@@ -1,0 +1,28 @@
+= Rakefile for the GATK 'better' workflow
+
+Author:: Hiroyuki Mishima (missy at be.to / hmishima at nagasaki-u.ac.jp)
+Copyright:: Hiroyuki Mishima, 2010-2011
+License:: the MIT/X11 license. See the LICENSE file.
+
+A rakefile for the Genome Analysis Toolkit (GATK) workflow. 
+
+see GATK web page http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit .
+
+This workflow describes "Better - sample-level realignment with known indels and recalibration". see http://www.broadinstitute.org/gsa/wiki/index.php/Best_Practice_Variant_Detection_with_the_GATK_v2#Better:_sample-level_realignment_with_known_indels_and_recalibration .
+
+== Package
+This workflow consists of the folloing files:
+* Rakefile - main rakefile
+* Rakefile.invoke - refered from Rakefile. Command-line options of tools to be invoked are described in this file.
+* Rakefile.helper - helper methods simplifying Rakefile descriptions.
+* nodefile - just contains a line "localhost 16"
+
+== How to run
+* Rake dry-run: rake -n
+* Rake run: rake
+* Pwrake dry-run: pwrake NODEFILE=nodefile -n
+* Pwrake run: pwrake NODEFILE=nodefile
+* details of Pwrake: see https://github.com/masa16/Pwrake/ and http://bioruby.open-bio.org/wiki/Workflows
+
+== Copyright and license
+copyright (c) Hiroyuki Mishima, 2010-2011. See the LICENSE file.

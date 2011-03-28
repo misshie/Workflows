@@ -1,0 +1,65 @@
+#
+# Rakefile.invoke for the Dindel workflow
+# 
+# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+DINDEL = "/usr/local/bin/dindel-1.01-linux-64bit"
+MAKEWINDOWS = "/usr/local/bin/makeWindows.py"
+NUM_WINDOWS_PER_FILE = 1 
+# default is 1000, "1" may obtain an excessive number of files.
+MERGE_OUTPUT_DIPLOID = "/usr/local/bin/mergeOutputDiploid.py"
+
+class RakefileInvoke
+  class << self
+    def sh_dindel_stage1(t, opts={})
+      sh [DINDEL,
+          "--analysis getCIGARindels",
+          "--bamFile #{t.sources[0]}",
+          "--outputFile #{opts[:prefix]}",
+          "--ref #{REFERENCE}",
+          "1> #{t.name}.log 2>&1",
+         ].join(" ")
+    end
+
+    def sh_make_windows(t, opts={})
+      sh [MAKEWINDOWS,
+          "--inputVarFile #{t.sources[0]}",
+          "--windowFilePrefix #{t.name}",
+          "--numWindowsPerFile #{NUM_WINDOWS_PER_FILE}",
+          "1> #{t.name}.log 2>&1",
+          "&& touch #{t.name}",
+         ].join(" ")
+    end
+
+    def sh_dindel_stage3(t, opts={})
+       sh [DINDEL,
+          "--analysis indels",
+          "--doDiploid",
+          "--bamFile #{t.prerequisites[1]}",
+          "--ref #{REFERENCE}",
+          "--varFile #{t.prerequisites[0]}",
+          "--libFile #{t.prerequisites[2]}",
+          "--outputFile #{t.name.sub(/\.glf\.txt$/, "")}",
+          "1> #{t.name.sub(/\.glf\.txt$/, "")}.log 2>&1",
+         ].join(" ")
+    end
+    
+    def sh_dindel_stage4_filelist(t, opts={})
+      open(t.name, 'w') do |fout|
+        t.prerequisites[1..-1].each do |file|
+          fout.puts file
+        end
+      end
+    end
+
+    def sh_indel_stage4(t, opts={})
+      sh [MERGE_OUTPUT_DIPLOID,
+          "--inputFiles #{t.prerequisites[0]}",
+          "--outputFile #{t.name}",
+          "--ref #{REFERENCE}",
+         ].join(" ")
+    end
+  end
+end

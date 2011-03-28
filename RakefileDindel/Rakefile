@@ -1,0 +1,124 @@
+#
+# Rakefile for the Dindel workflow 
+# 
+# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+load 'Rakefile.helper'
+load 'Rakefile.invoke'
+
+require 'pwrake/graph' if defined? Pwrake
+Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
+
+BAM = FileList["sample1.bam","sample2.bam"]
+
+REFERENCE = "../hg19.gatk.fasta"
+MERGED_VCF = "merged.vcf.gz"
+
+##
+## DINDEL stages
+##
+
+# DINDEL stage 1
+#
+desc "DINDEL stage1"
+rule ".dindel.variants.txt" => 
+  [ suffix_proc(".dindel.variants.txt" => ".bam") ] do |t|
+  opts = {:prefix => suffix(t.name, ".variants.txt" => "")}
+  RakefileInvoke::sh_dindel_stage1(t, opts)
+end
+
+rule ".dindel.libraries.txt" =>
+  [ suffix_proc(".dindel.libraries.txt" => ".bam") ]
+
+BAM.each do |bam|
+task :stage1 => suffix(bam, ".bam" => ".dindel.variants.txt")
+end
+
+# DINDEL stage 2
+#
+desc "DINDEL stage2"
+rule ".dindel.realign_windows" =>
+  [ suffix_proc(".dindel.realign_windows" => ".dindel.variants.txt"),
+    suffix_proc(".dindel.realign_windows" => ".dindel.libraries.txt"),
+  ] do |t|
+  RakefileInvoke::sh_make_windows t
+end
+
+BAM.each do |bam|
+  task :stage2 => suffix(bam, ".bam" => ".dindel.realign_windows")
+end
+# DINDEL stage 3
+#
+
+desc "DINDEL stage3"
+task :stage3 => :stage2 do
+  BAM.each do |bam|
+    FileList["#{bam.sub(/\.bam$/, ".dindel.realign_windows")}.*.txt"].each do |fn|
+      target = fn.sub(/\.realign_windows\./, ".output_regions.").
+                  sub(/\.txt$/, ".glf.txt")
+      file target =>
+        [  fn,
+           fn.sub(/\.dindel\.realign_windows\..*/, ".bam"),
+           fn.sub(/\.dindel\.realign_windows\..*/, ".dindel.libraries.txt"),
+        ] do |t|
+        RakefileInvoke::sh_dindel_stage3 t
+      end
+      task :stage3_invoke => target
+    end
+  end
+  (task :stage3_invoke).invoke
+end
+
+# DINDEL stage 4
+#
+
+## stage 4a
+desc "DINDEL stagr4a (build result filelists)"
+task :stage4a => :stage3 do 
+  BAM.each do |bam|
+    file suffix(bam, ".bam" => ".dindel.output_files.txt") =>
+      FileList["#{bam.sub(/\.bam$/, ".dindel.output_regions")}.*.glf.txt"] do |t|
+      RakefileInvoke::sh_dindel_stage4_filelist t
+    end
+    task :stage4a_invoke => suffix(bam, ".bam" => ".dindel.output_files.txt")
+  end
+  (task :stage4a_invoke).invoke
+end
+BAM.each do |bam|
+  task suffix(bam, ".bam" => ".dindel.output_files.txt") => :stage4a
+end
+
+## stage 4b
+rule ".dindel.vcf" =>
+  [ suffix_proc(".dindel.vcf" => ".dindel.output_files.txt") ] do |t|
+  RakefileInvoke::sh_indel_stage4 t
+end
+
+desc "DINDEL stage4b (integrate results)"
+BAM.each do |bam|
+  task :stage4b => [suffix(bam, ".bam" => ".dindel.vcf")]
+end
+
+#
+# default task
+#
+
+#task :default => :stage1 #  about 7min
+#task :default => :stage2 #  about 1min
+#task :default => :stage3 #  about 19hrs
+#task :default => :stage4a # about 1min
+task :default => :stage4b #  about 1min
+
+#
+# the graph task to output DAG graph
+# DOT files can be converted to image files
+# using Graphviz http://graphviz.org
+#
+task :graph => :default do
+  #require "pwrake/graph"
+  g = Pwrake::Graphviz.new
+  g.trace
+  g.write("graphviz.dot")
+end

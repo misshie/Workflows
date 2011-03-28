@@ -1,0 +1,25 @@
+#
+# Rakefile.helper for the Dindel workflow
+# 
+# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+#
+# helper methods
+#
+
+def suffix(objfile, dependency)
+  objext = ""
+  srcext = ""
+  dependency.each do |key, value|
+    objext = key
+    srcext = value
+  end
+  objfile.sub(/#{Regexp.escape(objext)}$/, srcext)
+end
+
+def suffix_proc(dependency)
+  proc {|fn| 
+    suffix(fn, dependency)}
+end

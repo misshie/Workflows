@@ -1,0 +1,26 @@
+= Rakefile for the Dindel workflow
+
+Author:: Hiroyuki Mishima (missy at be.to / hmishima at nagasaki-u.ac.jp)
+Copyright:: Hiroyuki Mishima, 2010-2011
+License:: the MIT/X11 license. See the LICENSE file.
+
+A rakefile for Dindel workflow. 
+
+see Dindel's web page http://www.sanger.ac.uk/resources/software/dindel/ .
+
+This workflow consists of three files:
+* Rakefile - main rakefile
+* Rakefile.invoke - refered from Rakefile. Command-line options of tools to be invoked are described in this file.
+* Rakefile.invoke - refered from Rakefile. Command-line options of
+tools to be invoked are described in this file.
+* Rakefile.helper - helper methods simplifying Rakefile descriptions.
+
+== how to run
+* Rake dry-run: rake -n
+* Rake run: rake
+* Pwrake dry-run: pwrake NODEFILE=nodefile -n
+* Pwrake run: pwrake NODEFILE=nodefile
+* details of Pwrake: see https://github.com/masa16/Pwrake/ and http://bioruby.open-bio.org/wiki/Workflows
+
+== Copyright and license
+copyright (c) Hiroyuki Mishima, 2010-2011. See the LICENSE file.
