@@ -1,9 +1,10 @@
 #
-# Rakefile.helper for the Dindel workflow
+# Rakefile.helper for the GATK 'better' workflow
 # 
-# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# copyright (c) 2010-2011 Hiroyuki MISHIMA (except commented methods)
 # ( missy at be.to / hmishima at nagasaki-u.ac.jp )
 # see README.rdoc and LICENCE for detail 
+
 
 #
 # helper methods
@@ -22,4 +23,11 @@ end
 def suffix_proc(dependency)
   proc {|fn| 
     suffix(fn, dependency)}
+end
+
+def rename_task(name, old_name)
+  t = Rake::Task[old_name]
+  desc t.full_comment if t.full_comment
+  task name => t.prerequisites
+  Rake::Task[old_name].clear
 end
