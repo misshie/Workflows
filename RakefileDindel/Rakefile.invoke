@@ -15,8 +15,6 @@ module RakefileInvoke
     NUM_WINDOWS_PER_FILE = 1
     # default is 1000, "1" may obtain an excessive number of files.
 
-
-
     class << self
       def dindel_stage1(t, opts={})
         sh [DINDEL,
