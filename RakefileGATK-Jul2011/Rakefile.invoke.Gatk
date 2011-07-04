@@ -1,0 +1,181 @@
+#
+# Rakefile.invoke.Gatk
+# Optimezed for GenomeAnalysisTK-1.0.5974
+#
+# copyright (c) 2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# License: the MIT/X11 licence
+# see README.rdoc and LICENCE for detail 
+
+module RakefileInvoke
+
+  class Gatk
+    REFERENCE = "/home/genetics/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
+    DBSNP132  = "/home/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
+    #REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
+    DOC_BED   = "/home/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_G3362_with_annotation.hg19.bed"
+    #GATK_PARALLEL = 16
+    Java          = "/usr/java/default/bin/java"
+    JavaMemory    = "8g"
+    JavaTempFile  = "/home/store/tmp"
+    GATK_DIR      = "/opt/GenomeAnalysisTK-1.0.5974"
+    GATK_JAR      = "#{GATK_DIR}/GenomeAnalysisTK.jar"
+    PYTHON        = "/usr/bin/python"
+    MAKEINDELMASK = "#{GATK_DIR}/makeIndelMask.py"
+
+    class << self
+      def realigner_target_creater(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T RealignerTargetCreator",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-I #{t.source}",
+            "-B:dbsnp132,VCF #{DBSNP132}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def indel_realigner(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T IndelRealigner",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-I #{t.sources[0]}",
+            "-B:dbsnp132,VCF #{DBSNP132}",
+            "-targetIntervals #{t.sources[1]}",
+            # "-compress 0",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+      def count_covariates(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T CountCovariates",
+            "-l INFO",
+            "-R #{REFERENCE}",
+            "-B:dbsnp132,VCF #{DBSNP132}",
+            "-I #{t.source}",
+            "-recalFile #{t.name}",
+            "-cov ReadGroupCovariate",
+            "-cov QualityScoreCovariate",
+            "-cov CycleCovariate",
+            "-cov DinucCovariate",
+            # "-nt #{GATK_PARALLEL}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def table_recalibration(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T TableRecalibration",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-recalFile #{t.sources[1]}",
+            "-o #{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def unified_genotyper_snv(t, opt={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T UnifiedGenotyper",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e}"}.join(" "),
+            "-o #{t.name}",
+            "-B:dbsnp132,VCF #{DBSNP132}",
+            "-stand_emit_conf 10.0",
+            "-stand_call_conf 30.0",
+            "-dcov 1000",
+            "-glm SNP",
+            "--group Standard",
+            "> #{t.name}.log 2>&1"
+           ].join(" ")
+      end
+
+      def unified_genotyper_indel(t, opt={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T UnifiedGenotyper",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e}"}.join(" "),
+            "-o #{t.name}",
+            "-B:dbsnp132,VCF #{DBSNP132}",
+            "-stand_emit_conf 10.0",
+            "-stand_call_conf 30.0",
+            "-dcov 1000",
+            "-glm INDEL",
+            "--group Standard",
+            "> #{t.name}.log 2>&1"
+           ].join(" ")
+      end
+
+      def variant_filtration_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-B:variant,VCF #{t.sources[0]}",
+            "-B:mask,VCF #{t.sources[1]}",
+            "--clusterWindowSize 10",
+            '--filterExpression "MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)"',
+            '--filterName "HARD_TO_VALIDATE"', # [match 10% of reads with MAPQ0]
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def variant_filtration_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "-B:variant,VCF #{t.source}",
+            '--filterExpression "MQ0 >= 4 && ((MQ0 / (1.0 * DP)) > 0.1)"',
+            '--filterName "HARD_TO_VALIDATE"', # [match 10% of reads with MAPQ0]
+            '--filterExpression "SB >= -1.0"',
+            '--filterName "StrandBiasFilter"',
+            '--filterExpression "QUAL < 10"',
+            '--filterName "QualFilter"',
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def depth_of_coverage(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T DepthOfCoverage",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e}"}.join(" "),
+            "-o #{t.name}",
+            "-L #{DOC_BED}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+    end # class << self 
+  end # class Gatk
+
+end # module RakefileInvoke 

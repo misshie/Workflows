@@ -1,0 +1,126 @@
+#
+# Rakefile for the GATK workflow 
+#
+# According to "Best Practice Variant Detechtion with GATK v2
+#  as of 7/1/2010.
+#
+# From the "*.sam.gz" files
+# to the "*.vcf" files with filter comments
+#
+# see http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit
+#
+# copyright (c) 2011 Hiroyuki MISHIMA
+#  License: the MIT/X11 licence
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+load "#{File.dirname(__FILE__)}/Rakefile.helper"
+
+# for GenomeAnalysisTK-1.0.5974
+load "#{File.dirname(__FILE__)}/Rakefile.invoke.Gatk"
+
+#  for picard-tools-1.46
+load "#{File.dirname(__FILE__)}/Rakefile.invoke.Picard"
+
+#require 'rake/clean'
+require 'pwrake/graph' if defined? Pwrake
+Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
+
+module Rakefile
+  class GatkWF
+    WORKDIR    = "#{File.dirname(__FILE__)}"
+    SAM_GZ     = FileList["#{WORKDIR}/*.sam.gz"]
+    SORT_BAM   = suffix(SAM_GZ, ".sam.gz" => ".sort.bam")
+    DEDUP_BAM  = suffix(SORT_BAM, ".sort.bam" => ".sort.dedup.bam")
+    INTERVALS  = suffix(DEDUP_BAM, ".sort.dedup.bam" => ".intervals")
+    REALIG_BAM = suffix(DEDUP_BAM, ".sort.dedup.bam" => ".sort.dedup.realig.bam")
+    RECAL_DATA = suffix(REALIG_BAM, ".sort.dedup.realig.bam" => ".recal_data.csv")
+    RECAL_BAM  = suffix(REALIG_BAM, ".sort.dedup.realig.bam" => ".sort.dedup.realig.recal.bam") 
+    SNV_VCF    = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".snv.vcf")
+    INDEL_VCF  = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".indel.vcf")
+    SNV_FILTERED_VCF   = suffix(SNV_VCF,   ".snv.vcf"   => ".snv.filtered.vcf")
+    INDEL_FILTERED_VCF = suffix(INDEL_VCF, ".indel.vcf" => ".indel.filtered.vcf")
+
+    OUT_VCF    = "all_calls.vcf"
+  end
+end
+
+rule '.sort.bam' => 
+  [ suffix_proc('.sort.bam' => '.sam.gz') ] do |t|
+  RakefileInvoke::Picard.sortsam_from_sam_gz t
+end
+
+rule '.sort.dedup.bam' => 
+  [ suffix_proc('.sort.dedup.bam' => '.sort.bam') ] do |t|
+  RakefileInvoke::Picard.markduplicate t
+end
+
+rule '.intervals' =>
+  [ suffix_proc('.intervals' => '.sort.dedup.bam') ] do |t|
+  RakefileInvoke::Gatk.realigner_target_creater t
+end 
+
+rule '.sort.dedup.realig.bam' =>
+   [ suffix_proc('.sort.dedup.realig.bam' => '.sort.dedup.bam'),
+     suffix_proc('.sort.dedup.realig.bam' => '.intervals'), ] do |t|
+  RakefileInvoke::Gatk.indel_realigner t
+end
+
+rule '.recal_data.csv' =>
+  [ suffix_proc('.recal_data.csv' => '.sort.dedup.realig.bam') ] do |t|
+  RakefileInvoke::Gatk.count_covariates t
+end
+
+rule '.sort.dedup.realig.recal.bam' =>
+  [ suffix_proc('.sort.dedup.realig.recal.bam' => '.sort.dedup.realig.bam'),
+    suffix_proc('.sort.dedup.realig.recal.bam' => '.recal_data.csv')]  do |t|
+  RakefileInvoke::Gatk.table_recalibration t
+end
+
+rule '.snv.vcf' =>
+  [ suffix_proc('.snv.vcf' => '.sort.dedup.realig.recal.bam') ] do |t|
+  RakefileInvoke::Gatk.unified_genotyper_snv t
+end
+
+rule '.indel.vcf' =>
+  [ suffix_proc('.indel.vcf' => '.sort.dedup.realig.recal.bam') ] do |t|
+  RakefileInvoke::Gatk.unified_genotyper_indel t
+end
+
+rule '.snv.filtered.vcf' =>
+  [ suffix_proc('.snv.filtered.vcf' => '.snv.vcf'),
+    suffix_proc('.snv.filtered.vcf' => '.indel.vcf'), ] do |t|
+  RakefileInvoke::Gatk.variant_filtration_snv t
+end
+
+rule '.indel.filtered.vcf' =>
+  [ suffix_proc('.indel.filtered.vcf' => '.indel.vcf') ] do |t|
+  RakefileInvoke::Gatk.variant_filtration_indel t
+end
+
+##
+## default task 
+##
+
+task :default => Rakefile::GatkWF::SORT_BAM
+#task :default => Rakefile::GatkWF::DEDUP_BAM
+#task :default => Rakefile::GatkWF::INTERVALS
+#task :default => Rakefile::GatkWF::REALIG_BAM
+#task :default => Rakefile::GatkWF::RECAL_DATA
+#task :default => Rakefile::GatkWF::RECAL_BAM
+
+#task :default => Rakefile::GatkWF::SNV_VCF
+#task :default => Rakefile::GatkWF::INDEL_VCF
+
+#task :default => Rakefile::GatkWF::SNV_FILTERED_VCF
+#task :default => Rakefile::GatkWF::INDEL_FILTERED_VCF
+
+## the graph task to output DAG graph
+## DOT files can be converted to image files
+## using Graphviz http://graphviz.org
+
+task :gatk_graph => :default do
+  g = Pwrake::Graphviz.new
+  g.trace
+  g.write("graphviz.dot")
+end

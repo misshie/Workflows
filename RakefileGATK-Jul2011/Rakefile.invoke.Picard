@@ -1,0 +1,137 @@
+#
+# Rakefile.invoke for the Picard tools
+# see http://picard.sourceforge.net/
+#
+# Optimized for picard-tools-1.46
+# 
+# copyright (c) 2010-2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+module RakefileInvoke
+  class Picard
+    REFERENCE = "/home/genetics/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
+    DBSNP     = "/home/genetics/NGS/resources/dbsnp_131_hg19.hg1x-format.rod"
+    DBSNP132  = "/home/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
+    REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
+
+    GATK_PARALLEL = 16
+    BWA           = "/usr/local/bin/bwa"
+    Java          = "/usr/java/default/bin/java"
+    JavaMemory    = "8g"
+    JavaTempFile  = "/home/store/tmp"
+    PICARD_DIR    = "/opt/picard-tools-1.46"
+    GATK_JAR      = "/opt/GenomeAnalysisTK/GenomeAnalysisTK.jar"
+    PYTHON        = "/usr/bin/python"
+    MAKEINDELMASK = "/opt/GenomeAnalysisTK/makeIndelMask.py"
+    INTERVAL_OPTION = "-L #{File.dirname(__FILE__)}/../Sample/chrom21.interval_list"
+
+    class << self
+      def sortsam(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/SortSam.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "SORT_ORDER=coordinate",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def sortsam_from_sam_gz(t, opts={})
+        sh ["zcat #{t.source} |",
+            Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/SortSam.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "SORT_ORDER=coordinate",
+            "CREATE_INDEX=true",
+            "INPUT=/dev/stdin",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def markduplicate(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/MarkDuplicates.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "METRICS_FILE=#{t.name}.metrics",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def fixmateinformation(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/FixMateInformation.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "SORT_ORDER=coordinate",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def build_bam_index(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{PICARD_DIR}/BuildBamIndex.jar",
+            "VALIDATION_STRINGENCY=SILENT",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      # def sam_to_sortbam(t, opts={})
+      #   sh ["zcat #{t.source}",
+      #       "| sed -e s/SO:unknown/SO:unsorted/",
+      #       "| #{JAVA} #{JAVAOPT} -jar #{PICARD}/ReplaceSamHeader.jar",
+      #       "TMP_DIR=#{TMPDIR}",
+      #       "VALIDATION_STRINGENCY=SILENT",
+      #       "INPUT=/dev/stdin",
+      #       "HEADER=#{SAM_HEADER}",
+      #       "OUTPUT=/dev/stdout",
+      #       "QUIET=true",
+      #       "| #{JAVA} #{JAVAOPT} -jar #{PICARD}/SortSam.jar",
+      #       "TMP_DIR=#{TMPDIR}",
+      #       "VALIDATION_STRINGENCY=SILENT",
+      #       "INPUT=/dev/stdin",
+      #       "SORT_ORDER=coordinate",
+      #       "OUTPUT=#{t.name}",
+      #       ].join(" ")
+      # end
+      
+      def add_rg(t, opt={})
+        sh ["#{JAVA} #{JAVAOPT} -jar #{PICARD}/AddOrReplaceReadGroups.jar",
+            "TMP_DIR=#{TMPDIR}",
+            "VALIDATION_STRINGENCY=LENIENT",
+            "CREATE_INDEX=true",
+            "INPUT=#{t.source}",
+            "OUTPUT=#{t.name}",
+            "RGID=\"#{opt[:id]}\"",
+            "RGLB=\"#{opt[:id]}\"",
+            "RGPL=\"#{RGPL}\"",
+            "RGPU=\"#{opt[:id]}\"",
+            "RGSM=\"#{opt[:id]}\"",
+            "RGCN=\"#{RGCN}\"",
+            "RGDS=\"#{RGDS}\"",
+           ].join(" ")
+      end
+
+    end # class << self 
+  end # class Picard
+end # module RakefileInvoke 
