@@ -14,12 +14,12 @@ see GATK web page http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_An
 This workflow describes "Better - sample-level realignment with known indels and recalibration". see http://www.broadinstitute.org/gsa/wiki/index.php/Best_Practice_Variant_Detection_with_the_GATK_v2#Better:_sample-level_realignment_with_known_indels_and_recalibration .
 
 = Workflow overview
-# Input file is *.sam.gz
-# => *.sort.dedup.bam
-# => *.sort.defup.realig.bam
-# => *.sort.dedup.realig.recal.bam
-# => *.snv.vcf and *.indel.vcf (each vcf file is for single sample)
-# => *.snv.filtered.vcf and *.indel.filtered.vcf
+ 1. Input file is *.sam.gz
+ 2. => *.sort.dedup.bam
+ 3. => *.sort.defup.realig.bam
+ 4. => *.sort.dedup.realig.recal.bam
+ 5. => *.snv.vcf and *.indel.vcf (each vcf file is for single sample)
+ 6. => *.snv.filtered.vcf and *.indel.filtered.vcf
 
 == How to run
 * Rake dry-run: rake -n
@@ -31,7 +31,7 @@ This workflow describes "Better - sample-level realignment with known indels and
 == Package
 Workflow directories consist of the folloing files:
 * Rakefile - main rakefile
-* Rakefile.invoke.* - refered from Rakefile. Command-line options of tools to be invoked are described in this file.
+* Rakefile.invoke.Gatk andRakefile.invoke.Picard - refered from Rakefile. Command-line options of tools to be invoked are described in this file. 
 * Rakefile.helper - helper methods simplifying Rakefile descriptions.
 * nodefile - just contains a line "localhost 16"
 
