@@ -1,35 +1,58 @@
-= Rakefile for GATK and Dindel workflows
+= Rakefiles for GATK and Dindel workflows
 
 Author:: Hiroyuki Mishima (missy at be.to / hmishima at nagasaki-u.ac.jp)
 Copyright:: Hiroyuki Mishima, 2010-2011
 License:: the MIT license. See the LICENSE file.
 
-= A rakefile for Dindel workflow. 
+= Workflows
+== The Dindel workflow. 
 see Dindel's web page http://www.sanger.ac.uk/resources/software/dindel/ .
 
-= Rakefile for the GATK 'better' workflow
+== The GATK 'better' workflow
 A rakefile for the Genome Analysis Toolkit (GATK) workflow. 
 
-see GATK web page http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit .
+see GATK web page
+http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit .
 
-This workflow describes "Better - sample-level realignment with known indels and recalibration". see http://www.broadinstitute.org/gsa/wiki/index.php/Best_Practice_Variant_Detection_with_the_GATK_v2#Better:_sample-level_realignment_with_known_indels_and_recalibration .
+This workflow describes "Better - sample-level realignment with known indels
+and recalibration".
+See http://www.broadinstitute.org/gsa/wiki/index.php/Best_Practice_Variant_Detection_with_the_GATK_v2#Better:_sample-level_realignment_with_known_indels_and_recalibration .
 
-= Combined Rakefile for GATK and Dindel workflows
+== Combined Rakefile for GATK and Dindel workflows
 A combined rakefile calling both GATK and Dindel workflows workflows. 
 
-== How to run
+== The GATK 'better' workflow July 2011
+The newest UnifiedGenotyper implements the Dindel algorithm and can reports both SNVs and indels. This workflows is based on the newest recommended workflow on the GATK web page. Now Rakefile.invoke is devided into Rakefile.invoke.Gatk and Rakefile.invoke.Picard. Each file containes Gatk or Picard specific methods. This made shareing Rakefile.invoke easier between different workflows.
+
+= How to run
 * Rake dry-run: rake -n
 * Rake run: rake
 * Pwrake dry-run: pwrake NODEFILE=nodefile -n
 * Pwrake run: pwrake NODEFILE=nodefile
 * details of Pwrake: see https://github.com/masa16/Pwrake/ and http://bioruby.open-bio.org/wiki/Workflows
 
-== Package
+= Package contents
 Workflow directories consist of the folloing files:
-* Rakefile - main rakefile
-* Rakefile.invoke - refered from Rakefile. Command-line options of tools to be invoked are described in this file.
-* Rakefile.helper - helper methods simplifying Rakefile descriptions.
-* nodefile - just contains a line "localhost 16"
+== Rakefile
+Main rakefile. In the start, target files of each workflow step are defined in constants. These constants are used in definition of the :default task. This makes finding overview of the workflow easy and setting break points in workflow execution. Each workflow steps can be defined using the "rule" method if the dependency of the step is defined by naming rules such as file extensions (suffix). The "file" method also can be used. This methods defines dependency using fixed filenames instead of rules. You can flexibly define dependencies using regular ruby syntax such as Enumerable#each. 
+== Rakefile.invoke
+Refered from Rakefile. Command-line options of tools to be invoked are described in this file. Each invoke method should receive a Task object (sometimes "t" is used for a parameter name). An optional Hash object can be used if the method needs extra information.
+== Rakefile.helper
+Defining helper methods simplifying Rakefile descriptions. These methods are defined in the top level.
+=== suffix(objfile, dependency)
+"objfile" is an array of String objects (filenames). "dependency" is a Hash but expected to have only one key. To replace the ".bam" file extension (or suffix) to ".dedup.bam", "dependency" should be {".bam" => ".dedup.bam"}. Note that you do not have to use "\." to indicate a dot. 
+=== suffix_proc(dependency)
+The "rule" method of Rake requires an Array of Proc objects (object of code block or procedure) to define dependent files. This method returnes a Proc object to replace suffix. "dependency" is as same as that in the suffix method. 
+
+== nodefile
+A file with contains a line "localhost 16" to allow to run maximum 16 processes simultaneously in the localhost. Multiple lines are allowed in this file.
+
+= How to write new workflows
+A new workflow in Pwrake may be implemented by the following steps:
+1. Parameter adjustment phase to define a method to execute the first task with a command-line in Rakefile.invoke. All the fixed values in the command-line should be given using constants instead of hard coding.
+2. Workflow definition phase to define the first task in Rakefile. Using the rule method is useful if the order of tasks can be defined by the file naming rule such as file name extensions.
+3. Run the workflow for test. For syntax check, the -n option of Pwrake for dry-run is useful. To check whether the generated command-line is collect or not, the command-line can be shown by replacing the sh method by the puts method in Rakefile.invoke. Redirecting the standard output and the standard error to files is a good practice for trouble shooting. 
+4. Iterate step 1 to 3 to extend and improve the workflow.
 
 = Copyright and license
 copyright (c) Hiroyuki Mishima, 2010-2011. See the LICENSE file.
