@@ -47,12 +47,32 @@ The "rule" method of Rake requires an Array of Proc objects (object of code bloc
 == nodefile
 A file with contains a line "localhost 16" to allow to run maximum 16 processes simultaneously in the localhost. Multiple lines are allowed in this file.
 
-= How to write new workflows
-A new workflow in Pwrake may be implemented by the following steps:
-1. Parameter adjustment phase to define a method to execute the first task with a command-line in Rakefile.invoke. All the fixed values in the command-line should be given using constants instead of hard coding.
-2. Workflow definition phase to define the first task in Rakefile. Using the rule method is useful if the order of tasks can be defined by the file naming rule such as file name extensions.
-3. Run the workflow for test. For syntax check, the -n option of Pwrake for dry-run is useful. To check whether the generated command-line is collect or not, the command-line can be shown by replacing the sh method by the puts method in Rakefile.invoke. Redirecting the standard output and the standard error to files is a good practice for trouble shooting. 
-4. Iterate step 1 to 3 to extend and improve the workflow.
+= Procedure to describe new workflows
+As a summary of the agile workflow development, the general procedure for describing new workflows in Pwrake is given below.
+
+== (1) Workflow definition phase.
+Describe file dependencies in Rakefile.
+ task "output.dat" => "input.dat" do |t|
+   RakefileInvoke::generate_terget t
+ end
+
+== (2) Parameter adjustment phase
+Define the RakefileInvoke::generate_terget method in Rake.invoke.
+ module RakefileInvoke
+   def generate_target(t)
+     sh "command-line #{t.prerequisite} > #{t.name}"
+   end
+ end
+
+== (3) Iteration of phases.
+Parameter adjustments require modifications to Rakefile.invoke only. Similarly, changes in file dependencies require modification to Rakefile only.
+
+== Tips
+* In Rakefile and Rakefile.invoke, all the fixed values in the command-line should be given using constants instead of hard coding.
+* In Rakefile, the rule method is useful if the order of tasks can be defined by the file naming rule such as file name extensions.
+* For syntax check, the -n option of the Pwrake/Rake command for dry-run is useful.
+* To check the correctness of the generated command-line, the command-line can be shown by replacing the sh method by the puts method in Rakefile.invoke.
+* Redirecting the standard output and the standard error to files is a good practice for trouble shooting.
 
 = Copyright and license
 copyright (c) Hiroyuki Mishima, 2010-2011. See the LICENSE file.
