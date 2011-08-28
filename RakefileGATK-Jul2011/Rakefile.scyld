@@ -1,0 +1,55 @@
+# Pwarake extenstion for Scycld/Beowul systems.
+# Load this file in Rakefiles to overwrte original classes.
+#
+# - Submitting processes using the 'beorun' command.
+# - Sleeping random seconds (0-5 sec) before invoke the beorun command.
+# - Accepting exitcode not in the Process::Status object but the Fixnum object
+#
+#
+# programmed by MISHIMA, Hiroyuki
+# (missy at be.to / hmishima at nagasaki-u.ac.jp / @mishimahryk)
+
+module FileUtils
+  alias sh_main :sh
+  def sh(*cmd, &block)
+    cmd[0] = "beorun --nolocal " + cmd[0]
+    block_alt = lambda { |ok, status|
+      show_command = cmd.join(" ")
+      # show_command = show_command[0,42] + "..."
+      if status.respond_to? :exitstatus
+        exitstat = status.exitstatus
+      else
+        exitstat = status
+      end
+      ok or fail "Command failed with status (#{exitstat}): [#{show_command}]"
+    }
+    sh_main(*cmd, &block_alt)
+  end
+end
+
+module Pwrake
+  class Shell
+    def backquote(*command)
+      if command.kind_of? Array
+        command = command.join(' ')
+      end
+      @lock.synchronize do
+        sleep (rand * 5)
+        @io.puts(command)
+        _get_output
+      end
+    end
+
+    def system(*command)
+      if command.kind_of? Array
+        command = command.join(' ')
+      end
+      @lock.synchronize do
+        sleep (rand * 5)
+        @io.puts(command)
+        _get
+      end
+      @status==0
+    end
+  end
+end
