@@ -1,0 +1,612 @@
+#
+# Rakefile.invoke.Gatk
+# Optimezed for GenomeAnalysisTK-1.0.5974
+#
+# copyright (c) 2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# License: the MIT/X11 licence
+# see README.rdoc and LICENCE for detail 
+#
+# updated for Scyld 2011-12-20
+# updated for 2012-3-26 for Illumina whole-genome
+
+module RakefileInvoke
+
+  class Gatk
+    REFERENCE = "/data/genetics/NGS/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
+    DBSNP132  = "/data/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
+    DBSNP132_EX =
+                "/data/genetics/NGS/GATKbundle/dbsnp_132.hg19.excluding_sites_after_129.vcf"
+    DBSNP135COMMON_SNV = "/data/genetics/NGS/resources/VCF-dbSNP135/hg19_snp135Common.hg1x.snv.vcf"
+    DBSNP135COMMON_INDEL = "/data/genetics/NGS/resources/VCF-dbSNP135/hg19_snp135Common.hg1x.indel.vcf"
+    VQSR_HAPMAP = "/data/genetics/NGS/GATKbundle/v1.5/hapmap_3.3.hg19.sites.vcf"
+    VQSR_OMNI = "/data/genetics/NGS/GATKbundle/v1.5/1000G_omni2.5.hg19.sites.vcf"
+    VQSR_DBSNP = "/data/genetics/NGS/GATKbundle/v1.5/dbsnp_135.hg19.vcf"
+    VQSR_INDEL = "/data/genetics/NGS/GATKbundle/v1.5/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf"
+    KNOWN_INDEL_1KG =
+                "/data/genetics/NGS/GATKbundle/1000G_biallelic.indels.hg19.vcf"
+    KNOWN_INDEL_MD =
+                "/data/genetics/NGS/GATKbundle/Mills_Devine_2hit.indels.hg19.vcf"
+    #DOC_BED   = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_G3362_with_annotation.hg19.bed"
+    #DOC_BED   = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_50mb_with_annotation_hg19.bed"
+    #DOC_BED    = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_V4.bed"
+    DOC_BED    = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_V4-UTRs.bed"
+    GATK_PARALLEL = 8
+    Java          = "/usr/java/default/bin/java"
+    JavaMemory    = "42g"
+    JavaTempFile  = "/data/scratch"
+    GATK_DIR      = "/opt/GenomeAnalysisTK-1.6-13-g91f02df"
+    GATK_JAR      = "#{GATK_DIR}/GenomeAnalysisTK.jar"
+    GATK2_DIR     = "/opt/GenomeAnalysisTK-2.2-2-gf44cc4e"
+    GATK2_JAR     = "#{GATK2_DIR}/GenomeAnalysisTK.jar"
+    PYTHON        = "/usr/bin/python"
+    MAKEINDELMASK = "#{GATK_DIR}/makeIndelMask.py"
+    INTERVAL      = ""
+    #INTERVAL      = "-L chr1:12345-45678"
+    TEMP_NAME    = "__TEMP__"
+    NOVOSORT     = "/opt/novosort-v1.00.00.gcc/novosort"
+    MAPDIR       = "Map"
+
+    class << self
+      def realigner_target_creater(t, opts={})
+        gatk_parallel = 2 # GATK_PARALLEL
+        java_memory = "10g" # JavaMemory
+        opts = {
+          :job => "realtgt",
+          :nodes => 1,
+          :ppn => gatk_parallel,
+        }
+        mkdir_p MAPDIR
+        jobids = RakefileInvoke::PBS.map_chroms(opts) do |chrom|
+          tmpitv = add_dir_to_path(MAPDIR, "#{t.name}_#{chrom}#{TEMP_NAME}")
+          tmplog = add_dir_to_path(MAPDIR, "#{t.name}_#{chrom}#{TEMP_NAME}.log")
+          outitv = add_dir_to_path(MAPDIR, "#{t.name}_#{chrom}")
+          outlog = add_dir_to_path(MAPDIR, "#{t.name}_#{chrom}.log")                                  
+          script = Array.new
+          script << 
+            [Java,
+             "-Xmx#{java_memory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK_JAR}",
+             "-nt #{gatk_parallel}",
+             "-T RealignerTargetCreator",
+             "-R #{REFERENCE}",
+             "-o #{tmpitv}",
+             "-I #{t.source}",
+             "-L #{chrom}",
+             "--known #{KNOWN_INDEL_1KG}",
+             "--known #{KNOWN_INDEL_MD}",
+             "> #{tmplog} 2>&1",
+            ].join(" ")
+          script << "mv #{tmpitv} #{outitv}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+
+        opts = {
+          :job => "realtgt-reduce",
+          :nodes => 1,
+          :ppn => 1,
+        }
+        RakefileInvoke::PBS.reduce_chroms(opts, jobids) do |chroms|
+          filenames = chroms.map{|x|add_dir_to_path(MAPDIR, "#{t.name}_#{x}")}.join(" ")
+          "cat #{filenames} > #{t.name}#{TEMP_NAME}\n" +
+            "mv #{t.name}#{TEMP_NAME} #{t.name}"
+        end
+
+        RakefileInvoke::PBS.wait_to_find t.name
+      end
+
+      # multithredding is not supported
+      def indel_realigner(t, opts={})
+        java_memory = "5g"
+        opts = {
+          :job => "realign",
+          :nodes => 1,
+          :ppn => 1,
+        }
+        mkdir_p MAPDIR
+        jobids = RakefileInvoke::PBS.map_chroms(opts) do |chrom|
+          tmpbam = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}#{TEMP_NAME}.bam"))
+          tmpbai = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}#{TEMP_NAME}.bai"))
+          tmplog = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}#{TEMP_NAME}.bam.log"))
+          outbam = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}.bam"))
+          outbai = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}.bai"))
+          outlog = add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{chrom}.bam.log"))
+
+          script = Array.new
+          script <<
+            [Java,
+             "-Xmx#{java_memory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK_JAR}",
+             "-T IndelRealigner",
+             "-R #{REFERENCE}",
+             "-o #{tmpbam}",
+             "-I #{t.sources[0]}",
+             "-L #{chrom}",
+             "-known #{KNOWN_INDEL_1KG}",
+             "-known #{KNOWN_INDEL_MD}",
+             "-targetIntervals #{t.sources[1]}",
+             "> #{tmplog} 2>&1",
+            ].join(" ")
+          script << "mv #{tmpbam} #{outbam}"
+          script << "mv #{tmpbai} #{outbai}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+
+        opts = {
+          :job => "realign-reduce",
+          :nodes => 1,
+          :ppn => 6,
+        }
+        RakefileInvoke::PBS.reduce_chroms(opts, jobids) do |chroms|
+          inbam = chroms.map{|x|add_dir_to_path(MAPDIR, t.name.sub(/\.bam\z/, "_#{x}.bam"))}.join(" ")
+          tmpbam = t.name.sub(/\.bam\z/, "#{TEMP_NAME}.bam")
+          tmpbai = t.name.sub(/\.bam\z/, "#{TEMP_NAME}.bam.bai")
+          tmplog = t.name.sub(/\.bam\z/, "#{TEMP_NAME}.bam.log")
+          outbai    = t.name.sub(/\.bam\z/, ".bai")
+          outlog    = t.name.sub(/\.bam\z/, ".bam.log")
+
+          script = Array.new
+          script << 
+            [NOVOSORT,
+             "--ram 32G",
+             "--threads 6",
+             "--output #{tmpbam}",
+             "--index",
+             "--tmpdir #{JavaTempFile}",
+             "#{inbam}",
+             "2> #{tmplog}",
+            ].join(" ")
+          script << "mv #{tmpbam} #{t.name}"
+          script << "mv #{tmpbai} #{outbai}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+
+        RakefileInvoke::PBS.wait_to_find t.name
+      end
+
+      def count_covariates(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T CountCovariates",
+            "-l INFO",
+            "-R #{REFERENCE}",
+            "--knownSites #{DBSNP132}",
+            "-I #{t.source}",
+            "-recalFile #{t.name}",
+            "-cov PrimerRoundCovariate",
+            "--standard_covs",
+            "--solid_nocall_strategy THROW_EXCEPTION",
+            "--solid_recal_mode SET_Q_ZERO_BASE_N",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      # == Available Covariates ==
+      # DinucCovariate (standard)
+      # CycleCovariate (standard)
+      # PrimerRoundCovariate
+      # TileCovariate
+      # MappingQualityCovariate (standard)
+      # HomopolymerCovariate
+      # GCContentCovariate
+      # PositionCovariate
+      # MinimumNQSCovariate
+      # ReadGroupCovariate (standard)
+      # QualityScoreCovariate
+
+      # non parallele
+      def table_recalibration(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T TableRecalibration",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-recalFile #{t.sources[1]}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      def unified_genotyper_indel(t, opt={})
+        java_memory = "10g"
+        gatk_parallel = 2
+        opts = {
+          :job => "gt-indel",
+          :nodes => 1,
+          :ppn => gatk_parallel,
+        }
+        mkdir_p MAPDIR
+        jobids = RakefileInvoke::PBS.map_chroms(opts) do |chrom|
+          tmpvcf = 
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf"))
+          tmpidx =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf.idx"))
+          tmplog =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf.log"))
+          outvcf =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf"))
+          outidx = 
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf.idx"))
+          outlog =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf.log"))
+
+          script = Array.new
+          script <<
+            [Java,
+             "-Xmx#{java_memory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK_JAR}",
+             "-T UnifiedGenotyper",
+             "-R #{REFERENCE}",
+             "-I #{t.sources[0]}",
+             "-o #{tmpvcf}",
+             "-L #{chrom}",
+             "-nt #{gatk_parallel}",
+             # "--dbsnp #{DBSNP135COMMON_INDEL}",
+             "-stand_emit_conf 10",
+             "-stand_call_conf 30",
+             "-dcov 1000",
+             "-glm INDEL",
+             "--group Standard",
+             "#{INTERVAL}",
+             "-minIndelCnt 5",
+             "> #{tmplog} 2>&1"
+            ].join(" ")
+          script << "mv #{tmpvcf} #{outvcf}"
+          script << "mv #{tmpidx} #{outidx}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+
+       opts = {
+          :job => "gt-indel-reduce",
+          :nodes => 1,
+          :ppn => 1,
+        }
+        RakefileInvoke::PBS.reduce_chroms(opts, jobids) do |chroms|
+          tmpvcf = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf")
+          tmpidx = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf.idx")
+          tmplog = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf.log")
+          outidx = t.name.sub(/\.vcf\z/, ".vcf.idx")
+          outlog = t.name.sub(/\.vcf\z/, ".vcf.log")
+          variants = chroms.map{|x|
+            "--variant " +
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{x}.vcf"))
+          }.join(" ")
+
+          script = Array.new
+          script << 
+            [Java,
+             "-Xmx#{JavaMemory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK2_JAR}", # <<<< using GATKv2
+             "-T CombineVariants",
+             "-R #{REFERENCE}",
+             variants,
+             "-o #{tmpvcf}",
+             "-assumeIdenticalSamples",
+             "1> #{tmplog} 2>&1",
+            ].join(" ")
+          script << "mv #{tmpvcf} #{t.name}"
+          script << "mv #{tmpidx} #{outidx}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+        RakefileInvoke::PBS.wait_to_find t.name
+      end
+
+      # -nt 8 does not work
+      def variant_filtration_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "--variant #{t.source}",
+            # Variant Confidence/Quality by Depth
+            '--filterExpression "QD < 2.0"',
+            '--filterName QDFilter',
+            # Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+            '--filterExpression "ReadPosRankSum < -20.0"',
+            '--filterName ReadPosBiasFilter',
+            # Inbreeding coefficient as estimated from the genotype likelihoods per-sample
+            # when compared against the Hardy-Weinberg expectation (needs samples >= 10)
+            # '--filterExpression "InbreedingCoeff < -0.8"',
+            # '--filterName InbreedingFilter',
+            # Phred-scaled p-value using Fisher's exact test to detect strand bias
+            '--filterExpression "FS > 200.0"',
+            '--filterName FSBiasFilter',
+            "#{INTERVAL}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      def left_align_variants(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T LeftAlignVariants",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "--variant #{t.source}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+
+      def variant_filtration_indel_pass(t, opts={})
+        sh ["awk",
+            %q!'/^\#/ {print;next} $7 == "PASS" {print}'!,
+            t.sources[0],
+            "> #{t.name}",
+            "2> #{t.name}.log"
+           ].join(" ")
+      end
+      
+      def unified_genotyper_snv(t, opt={})
+        java_memory = "10g"
+        gatk_parallel = 2
+        opts = {
+          :job => "gt-snv",
+          :nodes => 1,
+          :ppn => gatk_parallel,
+        }
+        mkdir_p MAPDIR
+        jobids = RakefileInvoke::PBS.map_chroms(opts) do |chrom|
+          tmpvcf = 
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf"))
+          tmpidx =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf.idx"))
+          tmplog =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}#{TEMP_NAME}.vcf.log"))
+          outvcf =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf"))
+          outidx = 
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf.idx"))
+          outlog =
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{chrom}.vcf.log"))
+
+          script = Array.new
+          script <<
+            [Java,
+             "-Xmx#{java_memory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK_JAR}",
+             "-T UnifiedGenotyper",
+             "-R #{REFERENCE}",
+             "-I #{t.sources[0]}",
+             "-o #{tmpvcf}",
+             "-L #{chrom}",
+             "-nt #{gatk_parallel}",
+             # "--dbsnp #{DBSNP135COMMON_SNV}",
+             "-stand_emit_conf 10",
+             "-stand_call_conf 30",
+             "-dcov 1000",
+             "-glm SNP",
+             "--group Standard",
+             "#{INTERVAL}",
+             "> #{tmplog} 2>&1"
+            ].join(" ")
+          script << "mv #{tmpvcf} #{outvcf}"
+          script << "mv #{tmpidx} #{outidx}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+              opts = {
+          :job => "gt-snv-reduce",
+          :nodes => 1,
+          :ppn => 1,
+        }
+        RakefileInvoke::PBS.reduce_chroms(opts, jobids) do |chroms|
+          tmpvcf = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf")
+          tmpidx = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf.idx")
+          tmplog = t.name.sub(/\.vcf\z/, "#{TEMP_NAME}.vcf.log")
+          outidx = t.name.sub(/\.vcf\z/, ".vcf.idx")
+          outlog = t.name.sub(/\.vcf\z/, ".vcf.log")
+          variants = chroms.map{|x|
+            "--variant " +
+            add_dir_to_path(MAPDIR, t.name.sub(/\.vcf\z/, "_#{x}.vcf"))
+          }.join(" ")
+
+          script = Array.new
+          script << 
+            [Java,
+             "-Xmx#{JavaMemory}",
+             "-Djava.io.tmpdir=#{JavaTempFile}",
+             "-jar #{GATK2_JAR}", # <<<< using GATKv2
+             "-T CombineVariants",
+             "-R #{REFERENCE}",
+             variants,
+             "-o #{tmpvcf}",
+             "-assumeIdenticalSamples",
+             "1> #{tmplog} 2>&1",
+            ].join(" ")
+          script << "mv #{tmpvcf} #{t.name}"
+          script << "mv #{tmpidx} #{outidx}"
+          script << "mv #{tmplog} #{outlog}"
+          script.join("\n")
+        end
+        RakefileInvoke::PBS.wait_to_find t.name
+      end
+
+      # -nt 8 does not work      
+      def variant_filtration_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "--variant #{t.sources[0]}",
+            #"--mask #{t.sources[1]}",
+            "--clusterWindowSize 10",
+            # Variant Confidence/Quality by Depth
+            '--filterExpression "QD < 2.0"',
+            '--filterName QDFilter',
+            # RMS Mapping Quality
+            '--filterExpression "MQ < 40.0"',
+            '--filterName MQFilter',
+            # Phred-scaled p-value using Fisher's exact test to detect strand bias
+            '--filterExpression "FS > 60.0"',
+            '--filterName FSFilter',
+            # Consistency of the site with at most two segregating haplotypes
+            # Recommended: > 13.0
+            # '--filterExpression "HaplotypeScore > 50.0"',
+            # '--filterName HaplotypeFilter',
+            # Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities
+            '--filterExpression "MQRankSum < -12.5"',
+            '--filterName MQBiasFilter',
+            # Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+            '--filterExpression "ReadPosRankSum < -8.0"',
+            '--filterName ReadPosBiasFilter',
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      def depth_of_coverage(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+#            "-nt #{GATK_PARALLEL}", # << not supported
+            "-T DepthOfCoverage",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e}"}.join(" "),
+            "-o #{t.name}#{TEMP_NAME}",
+            "-L #{DOC_BED}",
+            "-ct 5 -ct 10 -ct 15",
+            "--omitDepthOutputAtEachBase", # << SPEED UP
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        # --omitDepthOutputAtEachBase
+        # mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+        mv("#{t.name}#{TEMP_NAME}.sample_cumulative_coverage_counts",
+           "#{t.name}.sample_cumulative_coverage_counts")
+        mv("#{t.name}#{TEMP_NAME}.sample_cumulative_coverage_proportions",
+           "#{t.name}.sample_cumulative_coverage_proportions")
+        mv("#{t.name}#{TEMP_NAME}.sample_interval_statistics",
+           "#{t.name}.sample_interval_statistics")
+        mv("#{t.name}#{TEMP_NAME}.sample_statistics",
+           "#{t.name}.sample_statistics")
+        mv("#{t.name}#{TEMP_NAME}.sample_interval_summary",
+           "#{t.name}.sample_interval_summary")
+        mv("#{t.name}#{TEMP_NAME}.sample_summary",
+           "#{t.name}.sample_summary")
+      end
+
+      def variant_recalibrator_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T VariantRecalibrator",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-resource:hapmap,VCF,known=false,training=true,truth=true,prior=15.0 #{VQSR_HAPMAP}",
+            "-resource:omni,VCF,known=false,training=true,truth=false,prior=12.0 #{VQSR_OMNI}",
+            "-resource:dbsnp,VCF,known=true,training=false,truth=false,prior=6.0 #{VQSR_DBSNP}",
+            "-an QD",
+            "-an HaplotypeScore",
+            "-an MQRankSum",
+            "-an ReadPosRankSum",
+            "-an FS",
+            "-an MQ",
+            # "-an InbreedingCoeff",
+            "-an DP",
+            "-mode SNP",
+            "-recalFile #{t.name}",
+            "-tranchesFile #{t.name}.tranches",
+            "-rscriptFile #{t.name}.plots.R",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def variant_recalibrator_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T VariantRecalibrator",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-resource:mills,VCF,known=true,training=true,truth=true,prior=12.0 #{VQSR_INDEL}",
+            "-an QD",
+            "-an FS",
+            "-an HaplotypeScore",
+            "-an ReadPosRankSum",
+            # "-an InbreedingCoeff",
+            "-mode INDEL",
+            "-recalFile #{t.name}",
+            "-tranchesFile #{t.name}.tranches",
+            "-rscriptFile #{t.name}.plots.R",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def apply_recalibration_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+#            "-nt #{GATK_PARALLEL}",  # << Not supported yet
+            "-T ApplyRecalibration",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-o #{t.name}",
+            "-recalFile #{t.sources[1]}",
+            "-tranchesFile #{t.sources[1]}.tranches",
+            "--ts_filter_level 99.0",
+            "--mode SNP",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def apply_recalibration_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+ #           "-nt #{GATK_PARALLEL}",  # << Not supported yet
+            "-T ApplyRecalibration",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-o #{t.name}",
+            "-recalFile #{t.sources[1]}",
+            "-tranchesFile #{t.sources[1]}.tranches",
+            "--ts_filter_level 99.0",
+            "--mode INDEL",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+    end # class << self 
+  end # class Gatk
+
+end # module RakefileInvoke 

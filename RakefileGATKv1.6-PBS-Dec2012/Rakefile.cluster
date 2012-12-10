@@ -1,0 +1,70 @@
+# Pwarake extenstion for cluster environments
+# supporting PBS/TORQUE
+#
+# programmed by MISHIMA, Hiroyuki
+# (missy at be.to / hmishima at nagasaki-u.ac.jp / @mishimahryk)
+
+module RakefileInvoke
+
+  class PBS
+    DEFAULT_JOBDIR = "./Jobs"
+    CHROMS = (["M"] + (1..22).map(&:to_s) + ["X", "Y"]).map{|x|"chr#{x}"}
+    #CHROMS = ["chr21", "chr22"]
+
+    def self.jobdir
+      @jobdir ||= DEFAULT_JOBDIR
+    end
+
+    def self.jobdir=(dir)
+      @jobdir = dir
+    end
+
+    def self.qsub(opts=Hash.new)
+      mkdir_p "#{self.jobdir}"
+      open("#{self.jobdir}/submit-#{opts[:job]}.sh", 'w') do |fout|
+        fout.puts "#!/bin/bash"
+        fout.puts "#PBS -q batch"
+        fout.puts "#PBS -N #{opts[:job]}"
+        fout.puts "#PBS -l nodes=#{opts[:nodes]}:ppn=#{opts[:ppn]}"
+        fout.puts "#PBS -j oe"
+        fout.puts "cd ${PBS_O_WORKDIR}"
+        fout.puts "umask 002"
+        fout.puts opts[:script]
+      end
+      `qsub #{self.jobdir}/submit-#{opts[:job]}.sh`.chomp
+    end
+
+    def self.map_chroms(opts_orig=Hash.new)
+      jobids = Array.new
+      CHROMS.each do |chrom|
+        opts = opts_orig.dup
+        opts[:script] = yield(chrom)
+        opts[:job] = "#{opts_orig[:job]}_#{chrom}"
+        jobids << self.qsub(opts)
+      end
+      jobids
+    end
+
+    def self.reduce_chroms(opts, jobids)
+      open("#{self.jobdir}/submit-#{opts[:job]}.sh", 'w') do |fout|
+        fout.puts "#!/bin/bash"
+        fout.puts "#PBS -q batch"
+        fout.puts "#PBS -N #{opts[:job]}"
+        fout.puts "#PBS -l nodes=#{opts[:nodes]}:ppn=#{opts[:ppn]}"
+        fout.puts "#PBS -j oe"
+        fout.puts "cd ${PBS_O_WORKDIR}"
+        fout.puts "umask 002"
+        fout.puts yield(CHROMS)
+      end
+      `qsub -W depend=afterok:#{jobids.join(":")} #{self.jobdir}/submit-#{opts[:job]}.sh`
+    end
+
+    def self.wait_to_find(filename)
+      loop do
+        break if File.exist? filename.to_s
+        sleep 10
+      end
+    end
+  end
+
+end

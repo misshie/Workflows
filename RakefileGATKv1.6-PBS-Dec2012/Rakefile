@@ -1,0 +1,277 @@
+#
+# Rakefile for the GATK workflow 
+# version: 20121210
+#
+#
+# From the "*.sam.gz" files
+# to the "*.vcf" files with filter comments
+#
+# see http://www.broadinstitute.org/gsa/wiki/index.php/The_Genome_Analysis_Toolkit
+#
+# copyright (c) 2011 Hiroyuki MISHIMA
+#  License: the MIT/X11 licence
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# see README.rdoc and LICENCE for detail 
+
+load "#{File.dirname(__FILE__)}/Rakefile.helper"
+
+# for cluster environment
+load "#{File.dirname(__FILE__)}/Rakefile.cluster"
+
+# for GenomeAnalysisTK-1.0.5974
+load "#{File.dirname(__FILE__)}/Rakefile.invoke.Gatk"
+
+#  for picard-tools-1.46
+load "#{File.dirname(__FILE__)}/Rakefile.invoke.Picard"
+
+#require 'rake/clean'
+require 'pwrake/graph' if defined? Pwrake
+Pwrake::Shell.nice = "nice -n 15" if defined? Pwrake
+
+include Rake::DSL
+
+module Rakefile
+  class GatkWF
+    WORKDIR    = "#{File.dirname(__FILE__)}"
+
+    if FileList["#{WORKDIR}/*.sam.gz"].size > 0
+      SAM_GZ = FileList["#{WORKDIR}/*.sam.gz"]
+      SORT_BAM = suffix(SAM_GZ, ".sam.gz" => ".sort.bam")
+    elsif FileList["#{WORKDIR}/*.unsort.bam"].size > 0
+      UNSORT_BAM = FileList["#{WORKDIR}/*.unsort.bam"]
+      SORT_BAM = suffix(UNSORT_BAM, ".unsort.bam" => ".sort.bam")
+    else
+      raise "neither *.sam.gz or *.unsort.bam are found"
+    end
+
+    DEDUP_BAM  = suffix(SORT_BAM, ".sort.bam" => ".sort.dedup.bam")
+    INTERVALS  = suffix(DEDUP_BAM, ".sort.dedup.bam" => ".intervals")
+    REALIG_BAM = suffix(DEDUP_BAM, ".sort.dedup.bam" => ".sort.dedup.realig.bam")
+    RECAL_DATA = suffix(REALIG_BAM, ".sort.dedup.realig.bam" => ".recal_data.csv")
+    RECAL_BAM  = suffix(REALIG_BAM, ".sort.dedup.realig.bam" => ".sort.dedup.realig.recal.bam") 
+    SNV_VCF    = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".snv.vcf")
+    INDEL_VCF  = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".indel.vcf")
+    SNV_FILTERED_VCF   = suffix(SNV_VCF,   ".snv.vcf"   => ".snv.filtered.vcf")
+    INDEL_FILTERED_VCF = suffix(INDEL_VCF, ".indel.vcf" => ".indel.filtered.vcf")
+    INDEL_FILTERED_LEFT_VCF =
+      suffix(INDEL_FILTERED_VCF, ".indel.filtered.vcf" => ".indel.filtered.left.vcf")
+    SNV_RECAL_MUL_VCF    = suffix(SNV_FILTERED_VCF, ".snv.filtered.vcf" => ".snv.filtered.multi.vcf")
+    SNV_RECAL_BI_VCF     = suffix(SNV_FILTERED_VCF, ".snv.filtered.vcf" => ".snv.filtered.bi.vcf")
+    INDEL_RECAL_MUL_VCF  = suffix(INDEL_FILTERED_VCF, ".indel.filtered.vcf" => ".indel.filtered.multi.vcf")
+    INDEL_RECAL_BI_VCF   = suffix(INDEL_FILTERED_VCF, ".indel.filtered.vcf" => ".indel.filtered.bi.vcf")
+    
+    SNV_RECAL                = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".snv.recal")
+    INDEL_RECAL              = suffix(RECAL_BAM, ".sort.dedup.realig.recal.bam" => ".indel.recal")
+    SNV_RECAL_VCF            = suffix(SNV_RECAL, ".snv.recal" => ".snv.recal.vcf")
+    INDEL_RECAL_VCF          = suffix(INDEL_RECAL, ".indel.recal" => ".indel.recal.vcf")
+
+    DEPTH = suffix(DEDUP_BAM, ".sort.dedup.bam" => ".depth")
+
+    # The author use "false" for SOLiD data analyis
+    USE_RECALIBRATION = false #true
+  end
+end
+
+## -----------------
+## BAM Preprocessing
+## ----------------
+if FileList["#{Rakefile::GatkWF::WORKDIR}/*.sam.gz"].size > 0
+  rule '.sort.bam' => 
+    [ suffix_proc('.sort.bam' => '.sam.gz') ] do |t|
+    RakefileInvoke::Picard.sortsam_from_sam_gz t
+  end
+elsif FileList["#{Rakefile::GatkWF::WORKDIR}/*.unsort.bam"].size > 0
+  rule '.sort.bam' => 
+    [ suffix_proc('.sort.bam' => '.unsort.bam') ] do |t|
+    RakefileInvoke::Picard.novosort t
+  end  
+end
+
+rule '.sort.dedup.bam' => 
+  [ suffix_proc('.sort.dedup.bam' => '.sort.bam') ] do |t|
+  RakefileInvoke::Picard.markduplicate t
+end
+
+rule '.intervals' =>
+  [ suffix_proc('.intervals' => '.sort.dedup.bam') ] do |t|
+  RakefileInvoke::Gatk.realigner_target_creater t
+end
+
+rule '.sort.dedup.realig.bam' =>
+   [ suffix_proc('.sort.dedup.realig.bam' => '.sort.dedup.bam'),
+     suffix_proc('.sort.dedup.realig.bam' => '.intervals'), ] do |t|
+  RakefileInvoke::Gatk.indel_realigner t
+end
+
+rule '.recal_data.csv' =>
+  [ suffix_proc('.recal_data.csv' => '.sort.dedup.realig.bam') ] do |t|
+  RakefileInvoke::Gatk.count_covariates t
+end
+
+rule '.sort.dedup.realig.recal.bam' =>
+  [ suffix_proc('.sort.dedup.realig.recal.bam' => '.sort.dedup.realig.bam'),
+    suffix_proc('.sort.dedup.realig.recal.bam' => '.recal_data.csv')]  do |t|
+  RakefileInvoke::Gatk.table_recalibration t
+end
+
+## ---------------
+## Variant Calling
+## ---------------
+
+if Rakefile::GatkWF::USE_RECALIBRATION
+  rule '.indel.vcf' =>
+    [ suffix_proc('.indel.vcf' => '.sort.dedup.realig.recal.bam') ] do |t| 
+    RakefileInvoke::Gatk.unified_genotyper_indel t
+  end
+else
+  rule '.indel.vcf' =>
+    [ suffix_proc('.indel.vcf' => '.sort.dedup.realig.bam') ] do |t| 
+    RakefileInvoke::Gatk.unified_genotyper_indel t
+  end
+end
+
+rule '.indel.filtered.vcf' =>
+  [ suffix_proc('.indel.filtered.vcf' => '.indel.vcf') ] do |t|
+  RakefileInvoke::Gatk.variant_filtration_indel t
+end
+
+rule '.indel.filtered.left.vcf' =>
+  [ suffix_proc('.indel.filtered.left.vcf' => '.indel.filtered.vcf') ] do |t|
+  RakefileInvoke::Gatk.left_align_variants t
+end
+
+if  Rakefile::GatkWF::USE_RECALIBRATION
+  rule '.snv.vcf' =>
+    [ suffix_proc('.snv.vcf' => '.sort.dedup.realig.recal.bam')] do |t| 
+    RakefileInvoke::Gatk.unified_genotyper_snv t
+  end
+else
+  rule '.snv.vcf' =>
+    [ suffix_proc('.snv.vcf' => '.sort.dedup.realig.bam')] do |t| 
+    RakefileInvoke::Gatk.unified_genotyper_snv t
+  end
+end
+
+rule '.snv.filtered.vcf' =>
+  [ suffix_proc('.snv.filtered.vcf' => '.snv.vcf') ] do |t|
+  RakefileInvoke::Gatk.variant_filtration_snv t
+end
+
+## ----
+## VQSR
+## ----
+rule '.indel.recal' =>
+  [ suffix_proc('.indel.recal' => '.indel.vcf') ] do |t|
+  RakefileInvoke::Gatk.variant_recalibrator_indel t
+end
+
+rule '.snv.recal' =>
+  [ suffix_proc('.snv.recal' => '.snv.vcf') ] do |t|
+  RakefileInvoke::Gatk.variant_recalibrator_snv t
+end
+
+rule '.indel.recal.vcf' =>
+  [ suffix_proc('.indel.recal.vcf' => '.indel.vcf'), 
+    suffix_proc('.indel.recal.vcf' => '.indel.recal'), ] do |t|
+  RakefileInvoke::Gatk.apply_recalibration_indel t
+end
+
+rule '.snv.recal.vcf' =>
+  [ suffix_proc('.snv.recal.vcf' => '.snv.vcf'),
+    suffix_proc('.snv.recal.vcf' => '.snv.recal'), ] do |t|
+  RakefileInvoke::Gatk.apply_recalibration_snv t
+end
+
+rule '.indel.filtered.bi.vcf' =>
+  [ suffix_proc('.indel.filtered.bi.vcf' => '.indel.filtered.vcf') ] do |t|
+  RakefileInvoke::Gatk.selectvariants t, :allele => "BIALLELIC"
+end
+
+rule '.indel.filtered.multi.vcf' =>
+  [ suffix_proc('.indel.filtered.multi.vcf' => '.indel.filtered.vcf') ] do |t|
+  RakefileInvoke::Gatk.selectvariants t, :allele => "MULTIALLELIC"
+end
+
+rule '.snv.filtered.bi.vcf' =>
+  [ suffix_proc('.snv.filtered.bi.vcf' => '.snv.filtered.vcf') ] do |t|
+  RakefileInvoke::Gatk.selectvariants t, :allele => "BIALLELIC"
+end
+
+rule '.snv.filtered.multi.vcf' =>
+  [ suffix_proc('.snv.filtered.multi.vcf' => '.snv.filtered.vcf') ] do |t|
+  RakefileInvoke::Gatk.selectvariants t, :allele => "MULTIALLELIC"
+end
+
+## -----------------
+## Depth of Coverage
+## -----------------
+rule '.depth' =>
+  [ suffix_proc('.depth' => '.sort.dedup.bam') ] do |t|
+  RakefileInvoke::Gatk.depth_of_coverage t
+end
+
+## --------
+## task set
+## --------
+desc "generate sort.bam"
+task :sort => Rakefile::GatkWF::SORT_BAM
+desc "generate dedup.sort.bam"
+task :dedup => Rakefile::GatkWF::DEDUP_BAM
+desc "generate intervals for local realignment"
+task :intervals => Rakefile::GatkWF::INTERVALS
+desc "generate realig.dedup.sort.bam"
+task :realig => Rakefile::GatkWF::REALIG_BAM
+desc "generate qual-recaliculation data"
+task :recal_data =>  Rakefile::GatkWF::RECAL_DATA
+desc "generate recal.realig.dedup.sort.bam"
+task :recal_bam => Rakefile::GatkWF::RECAL_BAM
+
+desc "generate indel.vcf"
+task :indel_vcf => Rakefile::GatkWF::INDEL_VCF
+desc "generate indel.filtered.vcf (w/o left align)"
+task :indel_filtered_raw_vcf => Rakefile::GatkWF::INDEL_FILTERED_VCF
+desc "generate indel.filtered.left.vcf (w/ left align)"
+task :indel_filtered_vcf => Rakefile::GatkWF::INDEL_FILTERED_LEFT_VCF
+desc "generate snv.vcf"
+task :snv_vcf => Rakefile::GatkWF::SNV_VCF
+desc "generate snv.filtered.vcf"
+task :snv_filtered_vcf => Rakefile::GatkWF::SNV_FILTERED_VCF
+
+task :both_vcf => Rakefile::GatkWF::SNV_VCF
+task :both_vcf => Rakefile::GatkWF::INDEL_VCF
+
+desc "generate both snv.filtered.vcf and indel.filtered.left.vcf"
+task :both_filtered_vcf => Rakefile::GatkWF::INDEL_FILTERED_LEFT_VCF
+task :both_filtered_vcf => Rakefile::GatkWF::SNV_FILTERED_VCF
+
+task :both_recal_vcf => Rakefile::GatkWF::SNV_RECAL_VCF
+task :both_recal_vcf => Rakefile::GatkWF::INDEL_RECAL_VCF
+
+task :both_filtered_allelic_vcf => Rakefile::GatkWF::SNV_RECAL_MUL_VCF
+task :both_filtered_allelic_vcf => Rakefile::GatkWF::SNV_RECAL_BI_VCF
+task :both_filtered_allelic_vcf => Rakefile::GatkWF::INDEL_RECAL_MUL_VCF
+task :both_filtered_allelic_vcf => Rakefile::GatkWF::INDEL_RECAL_BI_VCF
+
+desc "generate depth of coverage information"
+task :depth => Rakefile::GatkWF::DEPTH
+
+desc "SNV, INDEL and Depth"
+task :all => :both_filtered_vcf
+task :all => :depth
+
+## ------------
+## default task 
+## ------------
+desc "* default is 'both_filtered_vcf' *"
+task :default => :both_filtered_vcf
+
+## -------------------------------------------
+## DAG graph generation after the default task
+## -------------------------------------------
+## the graph task to output DAG grap DOT files can be converted to image files
+## using Graphviz http://graphviz.org
+task :gatk_graph => :default do
+  g = Pwrake::Graphviz.new
+  g.trace
+  g.write("graphviz.dot")
+end
