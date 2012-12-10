@@ -1,0 +1,400 @@
+#
+# Rakefile.invoke.Gatk
+# Optimezed for GenomeAnalysisTK-1.0.5974
+#
+# copyright (c) 2011 Hiroyuki MISHIMA
+# ( missy at be.to / hmishima at nagasaki-u.ac.jp )
+# License: the MIT/X11 licence
+# see README.rdoc and LICENCE for detail 
+#
+# updated for Scyld 2011-12-20
+# updated for 2012-3-26 for Illumina whole-genome
+
+module RakefileInvoke
+
+  class Gatk
+    REFERENCE = "/data/genetics/NGS/Genomes/human_hg19_GRCh37/hg19.hg1x.fasta"
+    DBSNP132  = "/data/genetics/NGS/resources/dbsnp_132_hg19.hg1x-format.vcf"
+    DBSNP132_EX =
+                "/data/genetics/NGS/GATKbundle/dbsnp_132.hg19.excluding_sites_after_129.vcf"
+    DBSNP135COMMON_SNV = "/data/genetics/NGS/resources/VCF-dbSNP135/hg19_snp135Common.hg1x.snv.vcf"
+    DBSNP135COMMON_INDEL = "/data/genetics/NGS/resources/VCF-dbSNP135/hg19_snp135Common.hg1x.indel.vcf"
+    VQSR_HAPMAP = "/data/genetics/NGS/GATKbundle/v1.5/hapmap_3.3.hg19.sites.vcf"
+    VQSR_OMNI = "/data/genetics/NGS/GATKbundle/v1.5/1000G_omni2.5.hg19.sites.vcf"
+    VQSR_DBSNP = "/data/genetics/NGS/GATKbundle/v1.5/dbsnp_135.hg19.vcf"
+    VQSR_INDEL = "/data/genetics/NGS/GATKbundle/v1.5/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf"
+    KNOWN_INDEL_1KG =
+                "/data/genetics/NGS/GATKbundle/1000G_biallelic.indels.hg19.vcf"
+    KNOWN_INDEL_MD =
+                "/data/genetics/NGS/GATKbundle/Mills_Devine_2hit.indels.hg19.vcf"
+    #REFGENE   = "/home/genetics/NGS/resources/refseq-genes_hg19.rod"
+    #DOC_BED   = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_50mb_with_annotation_hg19.bed"
+    #DOC_BED    = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_V4.bed"
+    DOC_BED    = "/data/genetics/NGS/AgilentSureselect/SureSelect_All_Exon_V4-UTRs.bed"
+    GATK_PARALLEL = 8
+    Java          = "/usr/java/default/bin/java"
+    JavaMemory    = "42g"
+    JavaTempFile  = "/data/scratch"
+    GATK_DIR      = "/opt/GenomeAnalysisTK-1.6-13-g91f02df"
+    GATK_JAR      = "#{GATK_DIR}/GenomeAnalysisTK.jar"
+    PYTHON        = "/usr/bin/python"
+    MAKEINDELMASK = "#{GATK_DIR}/makeIndelMask.py"
+    INTERVAL      = ""
+ #  INTERVAL      = "-L chr12:49411758-49450107" ## MLL2
+    TEMP_NAME    = "__TEMP__"
+
+    class << self
+      def realigner_target_creater(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T RealignerTargetCreator",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "-I #{t.source}",
+            "--known #{KNOWN_INDEL_1KG}",
+            "--known #{KNOWN_INDEL_MD}",
+            "#{INTERVAL}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      # non parallele
+      def indel_realigner(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T IndelRealigner",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "-I #{t.sources[0]}",
+            "-known #{KNOWN_INDEL_1KG}",
+            "-known #{KNOWN_INDEL_MD}",
+            "-targetIntervals #{t.sources[1]}",
+#            "-compress 0",
+            "#{INTERVAL}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.bai", t.name.sub(/\.bam\z/, ".bai"))
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      def count_covariates(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T CountCovariates",
+            "-l INFO",
+            "-R #{REFERENCE}",
+            "--knownSites #{DBSNP132}",
+            "-I #{t.source}",
+            "-recalFile #{t.name}",
+            "-cov PrimerRoundCovariate",
+            "--standard_covs",
+            "--solid_nocall_strategy THROW_EXCEPTION",
+            "--solid_recal_mode SET_Q_ZERO_BASE_N",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      # == Available Covariates ==
+      # DinucCovariate (standard)
+      # CycleCovariate (standard)
+      # PrimerRoundCovariate
+      # TileCovariate
+      # MappingQualityCovariate (standard)
+      # HomopolymerCovariate
+      # GCContentCovariate
+      # PositionCovariate
+      # MinimumNQSCovariate
+      # ReadGroupCovariate (standard)
+      # QualityScoreCovariate
+
+      # non parallele
+      def table_recalibration(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T TableRecalibration",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-recalFile #{t.sources[1]}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+
+      end
+
+      def unified_genotyper_indel(t, opt={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T UnifiedGenotyper",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "-nt #{GATK_PARALLEL}",
+            "--dbsnp #{DBSNP135COMMON_INDEL}",
+            "-stand_emit_conf 10",
+            "-stand_call_conf 30",
+            "-dcov 1000",
+            "-glm INDEL",
+            "--group Standard",
+            "#{INTERVAL}",
+            "-minIndelCnt 5",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1"
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      # -nt 8 does not work
+      def variant_filtration_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "--variant #{t.source}",
+            # Variant Confidence/Quality by Depth
+            '--filterExpression "QD < 2.0"',
+            '--filterName QDFilter',
+            # Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+            '--filterExpression "ReadPosRankSum < -20.0"',
+            '--filterName ReadPosBiasFilter',
+            # Inbreeding coefficient as estimated from the genotype likelihoods per-sample
+            # when compared against the Hardy-Weinberg expectation (needs samples >= 10)
+            ## '--filterExpression "InbreedingCoeff < -0.8"',
+            ## '--filterName InbreedingFilter',
+            # Phred-scaled p-value using Fisher's exact test to detect strand bias
+            '--filterExpression "FS > 200.0"',
+            '--filterName FSBiasFilter',
+            "#{INTERVAL}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      def left_align_variants(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T LeftAlignVariants",
+            "-R #{REFERENCE}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "--variant #{t.source}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+
+      def variant_filtration_indel_pass(t, opts={})
+        sh ["awk",
+            %q!'/^\#/ {print;next} $7 == "PASS" {print}'!,
+            t.sources[0],
+            "> #{t.name}",
+            "2> #{t.name}.log"
+           ].join(" ")
+      end
+      
+      def unified_genotyper_snv(t, opt={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T UnifiedGenotyper",
+            "-R #{REFERENCE}",
+            "-I #{t.sources[0]}",
+            "-o #{t.name}#{TEMP_NAME}",
+            "-nt #{GATK_PARALLEL}",
+            "--dbsnp #{DBSNP135COMMON_SNV}",
+            "-stand_emit_conf 10",
+            "-stand_call_conf 30",
+            "-dcov 1000",
+            "-glm SNP",
+            "--group Standard",
+            "#{INTERVAL}",
+            "> #{t.name}#{TEMP_NAME}.log 2>&1"
+           ].join(" ")
+        mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.idx", "#{t.name}.idx")
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+      end
+
+      # -nt 8 does not work      
+      def variant_filtration_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-T VariantFiltration",
+            "-R #{REFERENCE}",
+            "-o #{t.name}",
+            "--variant #{t.sources[0]}",
+            #"--mask #{t.sources[1]}",
+            "--clusterWindowSize 10",
+            # Variant Confidence/Quality by Depth
+            '--filterExpression "QD < 2.0"',
+            '--filterName QDFilter',
+            # RMS Mapping Quality
+            '--filterExpression "MQ < 40.0"',
+            '--filterName MQFilter',
+            # Phred-scaled p-value using Fisher's exact test to detect strand bias
+            '--filterExpression "FS > 60.0"',
+            '--filterName FSFilter',
+            # Consistency of the site with at most two segregating haplotypes
+            # Recommended: > 13.0
+           '--filterExpression "HaplotypeScore > 50.0"',
+            '--filterName HaplotypeFilter',
+            # Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities
+            '--filterExpression "MQRankSum < -12.5"',
+            '--filterName MQBiasFilter',
+            # Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+            '--filterExpression "ReadPosRankSum < -8.0"',
+            '--filterName ReadPosBiasFilter',
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def depth_of_coverage(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+#            "-nt #{GATK_PARALLEL}", # << not supported
+            "-T DepthOfCoverage",
+            "-R #{REFERENCE}",
+            t.prerequisites.map{|e|"-I #{e}"}.join(" "),
+            "-o #{t.name}#{TEMP_NAME}",
+            "-L #{DOC_BED}",
+            "--omitDepthOutputAtEachBase", # << SPEED UP
+            "> #{t.name}#{TEMP_NAME}.log 2>&1",
+           ].join(" ")
+        # --omitDepthOutputAtEachBase
+        # mv("#{t.name}#{TEMP_NAME}", t.name)
+        mv("#{t.name}#{TEMP_NAME}.log", "#{t.name}.log")
+        mv("#{t.name}#{TEMP_NAME}.sample_cumulative_coverage_counts",
+           "#{t.name}.sample_cumulative_coverage_counts")
+        mv("#{t.name}#{TEMP_NAME}.sample_cumulative_coverage_proportions",
+           "#{t.name}.sample_cumulative_coverage_proportions")
+        mv("#{t.name}#{TEMP_NAME}.sample_interval_statistics",
+           "#{t.name}.sample_interval_statistics")
+        mv("#{t.name}#{TEMP_NAME}.sample_statistics",
+           "#{t.name}.sample_statistics")
+        mv("#{t.name}#{TEMP_NAME}.sample_interval_summary",
+           "#{t.name}.sample_interval_summary")
+        mv("#{t.name}#{TEMP_NAME}.sample_summary",
+           "#{t.name}.sample_summary")
+      end
+
+      def variant_recalibrator_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T VariantRecalibrator",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-resource:hapmap,VCF,known=false,training=true,truth=true,prior=15.0 #{VQSR_HAPMAP}",
+            "-resource:omni,VCF,known=false,training=true,truth=false,prior=12.0 #{VQSR_OMNI}",
+            "-resource:dbsnp,VCF,known=true,training=false,truth=false,prior=6.0 #{VQSR_DBSNP}",
+            "-an QD",
+            "-an HaplotypeScore",
+            "-an MQRankSum",
+            "-an ReadPosRankSum",
+            "-an FS",
+            "-an MQ",
+            # "-an InbreedingCoeff",
+            "-an DP",
+            "-mode SNP",
+            "-recalFile #{t.name}",
+            "-tranchesFile #{t.name}.tranches",
+            "-rscriptFile #{t.name}.plots.R",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def variant_recalibrator_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+            "-nt #{GATK_PARALLEL}",
+            "-T VariantRecalibrator",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-resource:mills,VCF,known=true,training=true,truth=true,prior=12.0 #{VQSR_INDEL}",
+            "-an QD",
+            "-an FS",
+            "-an HaplotypeScore",
+            "-an ReadPosRankSum",
+            # "-an InbreedingCoeff",
+            "-mode INDEL",
+            "-recalFile #{t.name}",
+            "-tranchesFile #{t.name}.tranches",
+            "-rscriptFile #{t.name}.plots.R",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def apply_recalibration_snv(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+#            "-nt #{GATK_PARALLEL}",  # << Not supported yet
+            "-T ApplyRecalibration",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-o #{t.name}",
+            "-recalFile #{t.sources[1]}",
+            "-tranchesFile #{t.sources[1]}.tranches",
+            "--ts_filter_level 99.0",
+            "--mode SNP",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+
+      def apply_recalibration_indel(t, opts={})
+        sh [Java,
+            "-Xmx#{JavaMemory}",
+            "-Djava.io.tmpdir=#{JavaTempFile}",
+            "-jar #{GATK_JAR}",
+ #           "-nt #{GATK_PARALLEL}",  # << Not supported yet
+            "-T ApplyRecalibration",
+            "-R #{REFERENCE}",
+            "-input #{t.sources[0]}",
+            "-o #{t.name}",
+            "-recalFile #{t.sources[1]}",
+            "-tranchesFile #{t.sources[1]}.tranches",
+            "--ts_filter_level 99.0",
+            "--mode INDEL",
+            "> #{t.name}.log 2>&1",
+           ].join(" ")
+      end
+    end # class << self 
+  end # class Gatk
+
+end # module RakefileInvoke 
